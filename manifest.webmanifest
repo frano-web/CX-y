@@ -1,0 +1,12 @@
+{
+  "name": "CX Trip Manager",
+  "short_name": "CX Trip",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#08111f",
+  "theme_color": "#0b1220",
+  "description": "Wspólny planer wyjazdów na wyścigi przełajowe.",
+  "icons": [
+    {"src":"./icons/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
+  ]
+}
