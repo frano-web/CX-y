@@ -14,7 +14,7 @@ const PLN = new Intl.NumberFormat('pl-PL',{style:'currency',currency:'PLN'});
 const DMY = new Intl.DateTimeFormat('pl-PL',{day:'2-digit',month:'2-digit',year:'numeric'});
 const MONTH = new Intl.DateTimeFormat('pl-PL',{month:'long',year:'numeric'});
 const state = {
-  user: null, team: null, members: [], races: [], participants: [], tasks: [], expenses: [], shares: [], vehicles: [], packing: [],
+  user: null, team: null, members: [], races: [], participants: [], tasks: [], expenses: [], shares: [], vehicles: [], packing: [], results: [], privateNotes: [], prizes: [],
   view: 'dashboard', selectedRaceId: null, detailTab: 'overview', search: '', raceFilter: 'nadchodzace',
   taskFilter: 'open', taskMemberFilter: 'all', calDate: new Date(), loading: true, authMode: 'signin', realtime: null, demo: !configured
 };
@@ -39,6 +39,11 @@ function isTaskOverdue(t){ return !t.done && t.due_date && dateObj(t.due_date) <
 function raceExpenses(rid){ return state.expenses.filter(x=>x.race_id===rid); }
 function raceVehicles(rid){ return state.vehicles.filter(x=>x.race_id===rid); }
 function racePacking(rid){ return state.packing.filter(x=>x.race_id===rid); }
+function raceResults(rid){ return state.results.filter(x=>x.race_id===rid); }
+function myPrivateNotes(){ return state.privateNotes.filter(x=>x.user_id===state.user?.id); }
+function myPrizeEntries(){ return state.prizes.filter(x=>x.user_id===state.user?.id); }
+function settlementLabel(s){ return ({nierozliczone:'Nierozliczone',rozliczone:'Rozliczone',na_miejscu:'Na miejscu'})[s]||'Nierozliczone'; }
+function settlementClass(s){ return s==='rozliczone'?'ok':s==='na_miejscu'?'warn':'danger'; }
 function raceShareRows(rid){ const ids=new Set(raceExpenses(rid).map(e=>e.id)); return state.shares.filter(s=>ids.has(s.expense_id)); }
 function nowDay(){ const d=new Date(); d.setHours(0,0,0,0); return d; }
 function isUpcoming(r){ const e=dateObj(r.end_date||r.race_date); return e && e>=nowDay() && r.status!=='odwolany'; }
@@ -58,11 +63,11 @@ function taskProgress(rid){ const a=raceTasks(rid); if(!a.length)return 0; retur
 function participantCount(rid){ return raceParts(rid).filter(p=>p.status==='jedzie').length; }
 function upcomingRaces(){ return [...state.races].filter(isUpcoming).sort((a,b)=>String(a.race_date).localeCompare(String(b.race_date))); }
 function totalExpenses(rid=null){ return (rid?raceExpenses(rid):state.expenses).reduce((s,e)=>s+Number(e.amount||0),0); }
-function saveDemo(){ if(state.demo){ localStorage.setItem('cxtrip_demo_v2',JSON.stringify({team:state.team,members:state.members,races:state.races,participants:state.participants,tasks:state.tasks,expenses:state.expenses,shares:state.shares,vehicles:state.vehicles,packing:state.packing})); } }
-function saveSnapshot(){ try{ localStorage.setItem('cxtrip_snapshot',JSON.stringify({team:state.team,members:state.members,races:state.races,participants:state.participants,tasks:state.tasks,expenses:state.expenses,shares:state.shares,vehicles:state.vehicles,packing:state.packing,ts:Date.now()})); }catch{} }
+function saveDemo(){ if(state.demo){ localStorage.setItem('cxtrip_demo_v3',JSON.stringify({team:state.team,members:state.members,races:state.races,participants:state.participants,tasks:state.tasks,expenses:state.expenses,shares:state.shares,vehicles:state.vehicles,packing:state.packing,results:state.results,privateNotes:state.privateNotes,prizes:state.prizes})); } }
+function saveSnapshot(){ try{ localStorage.setItem('cxtrip_snapshot',JSON.stringify({team:state.team,members:state.members,races:state.races,participants:state.participants,tasks:state.tasks,expenses:state.expenses,shares:state.shares,vehicles:state.vehicles,packing:state.packing,results:state.results,privateNotes:state.privateNotes,prizes:state.prizes,ts:Date.now()})); }catch{} }
 
 function seedDemo(){
-  const stored=localStorage.getItem('cxtrip_demo_v2'); if(stored){ Object.assign(state,JSON.parse(stored)); const demoMe=state.members.find(m=>m.display_name==='Dawid')||state.members[0]; state.user={id:demoMe.user_id,email:'demo@cxtrip.local',user_metadata:{display_name:demoMe.display_name}}; return; }
+  const stored=localStorage.getItem('cxtrip_demo_v3')||localStorage.getItem('cxtrip_demo_v2'); if(stored){ Object.assign(state,JSON.parse(stored)); const demoMe=state.members.find(m=>m.display_name==='Dawid')||state.members[0]; state.user={id:demoMe.user_id,email:'demo@cxtrip.local',user_metadata:{display_name:demoMe.display_name}}; return; }
   const me='u1',u2='u2',u3='u3',u4='u4',u5='u5',tid='t1';
   const d=new Date(); const d1=new Date(d); d1.setDate(d.getDate()+6); const d2=new Date(d); d2.setDate(d.getDate()+13);
   state.user={id:me,email:'demo@cxtrip.local',user_metadata:{display_name:'Dawid'}};
@@ -74,8 +79,8 @@ function seedDemo(){
   ];
   const r1='r1',r2='r2';
   state.races=[
-    {id:r1,team_id:tid,name:'Puchar Polski CX — Szczekociny',race_date:isoDate(d1),end_date:isoDate(d1),start_time:'11:40',city:'Szczekociny',race_address:'Szczekociny',category:'Junior',status:'potwierdzony',hotel_status:'zarezerwowany',hotel_name:'Hotel Demo',hotel_address:'Centrum, Szczekociny',hotel_rooms:'2×2 osoby + 1×1',hotel_price:640,hotel_notes:'Śniadanie od 6:30. Parking z tyłu hotelu.',race_notes:'Biuro zawodów od 8:00. Wziąć drugi komplet kół.',transport_notes:'Wyjazd rano, dokładna godzina do ustalenia.'},
-    {id:r2,team_id:tid,name:'Bryksy Cross',race_date:isoDate(d2),end_date:isoDate(d2),start_time:'12:10',city:'Gościęcin',race_address:'Gościęcin',category:'Junior',status:'planowany',hotel_status:'szukamy',hotel_name:'',hotel_address:'',hotel_rooms:'',hotel_price:null,hotel_notes:'',race_notes:'Czekamy na harmonogram.',transport_notes:''}
+    {id:r1,team_id:tid,name:'Puchar Polski CX — Szczekociny',race_date:isoDate(d1),end_date:isoDate(d1),start_time:'11:40',city:'Szczekociny',race_address:'Szczekociny',category:'Junior',status:'potwierdzony',hotel_status:'zarezerwowany',hotel_payment_status:'nierozliczone',hotel_stay_days:2,hotel_name:'Hotel Demo',hotel_address:'Centrum, Szczekociny',hotel_rooms:'2×2 osoby + 1×1',hotel_price:640,hotel_notes:'Śniadanie od 6:30. Parking z tyłu hotelu.',race_notes:'Biuro zawodów od 8:00. Wziąć drugi komplet kół.',transport_notes:'Wyjazd rano, dokładna godzina do ustalenia.'},
+    {id:r2,team_id:tid,name:'Bryksy Cross',race_date:isoDate(d2),end_date:isoDate(d2),start_time:'12:10',city:'Gościęcin',race_address:'Gościęcin',category:'Junior',status:'planowany',hotel_status:'szukamy',hotel_payment_status:'na_miejscu',hotel_stay_days:1,hotel_name:'',hotel_address:'',hotel_rooms:'',hotel_price:null,hotel_notes:'',race_notes:'Czekamy na harmonogram.',transport_notes:''}
   ];
   state.participants=state.members.flatMap((m,i)=>[
     {id:uid(),race_id:r1,user_id:m.user_id,status:i<4?'jedzie':'moze'},
@@ -89,9 +94,12 @@ function seedDemo(){
     {id:'ta5',team_id:tid,race_id:null,title:'Przygotować listę zakupów na wyjazd',note:'Woda, jedzenie, ręczniki papierowe.',assigned_to:u5,created_by:u2,due_date:isoDate(d1),priority:'normal',done:false}
   ];
   state.expenses=[{id:'e1',race_id:r1,payer_id:me,description:'Hotel',category:'hotel',amount:640,paid_at:isoDate(d)}];
-  state.shares=state.members.slice(0,4).map(m=>({id:uid(),expense_id:'e1',user_id:m.user_id,share_amount:160}));
+  state.shares=state.members.slice(0,4).map(m=>({id:uid(),expense_id:'e1',user_id:m.user_id,share_amount:160,settlement_status:m.user_id===me?'rozliczone':'nierozliczone'}));
   state.vehicles=[{id:'v1',race_id:r1,driver_id:me,name:'Audi A4',seats:5,departure_time:`${isoDate(d1)}T06:30:00`,departure_place:'Jarocin',notes:'Bagażnik na 4 rowery'}];
   state.packing=[{id:uid(),race_id:r1,name:'Myjka',owner_id:u2,qty:1,done:false},{id:uid(),race_id:r1,name:'Zapasowe koła',owner_id:me,qty:2,done:true}];
+  state.results=[{id:'res1',race_id:r1,user_id:me,result_text:'3. miejsce',category:'Junior',note:'Dobry start, ciężka końcówka.',created_at:new Date().toISOString()}];
+  state.privateNotes=[{id:'pn1',user_id:me,title:'Moje ustawienia roweru',body:'Ciśnienie na błoto: sprawdzić przed startem.',created_at:new Date().toISOString()}];
+  state.prizes=[{id:'pr1',user_id:me,race_id:r1,race_name:'Puchar Polski CX — Szczekociny',amount:200,awarded_at:isoDate(d1),note:'Nagroda za podium'}];
   saveDemo();
 }
 
@@ -105,19 +113,20 @@ async function loadRealData(){
   const {data:members}=await supabase.from('team_members').select('*').eq('team_id',teamId).order('created_at');
   const {data:races,error:rerr}=await supabase.from('races').select('*').eq('team_id',teamId).order('race_date'); if(rerr)throw rerr;
   const raceIds=(races||[]).map(r=>r.id);
-  let participants=[],tasks=[],expenses=[],shares=[],vehicles=[],packing=[];
+  let participants=[],tasks=[],expenses=[],shares=[],vehicles=[],packing=[],results=[];
   const tq=await supabase.from('tasks').select('*').eq('team_id',teamId).order('done').order('due_date',{ascending:true,nullsFirst:false}).order('created_at',{ascending:false});
   tasks=tq.data||[];
   if(raceIds.length){
-    const [p,e,v,pk]=await Promise.all([
+    const [p,e,v,pk,res]=await Promise.all([
       supabase.from('race_participants').select('*').in('race_id',raceIds),
       supabase.from('expenses').select('*').in('race_id',raceIds), supabase.from('race_vehicles').select('*').in('race_id',raceIds),
-      supabase.from('packing_items').select('*').in('race_id',raceIds)
+      supabase.from('packing_items').select('*').in('race_id',raceIds), supabase.from('race_results').select('*').in('race_id',raceIds)
     ]);
-    participants=p.data||[]; expenses=e.data||[]; vehicles=v.data||[]; packing=pk.data||[];
+    participants=p.data||[]; expenses=e.data||[]; vehicles=v.data||[]; packing=pk.data||[]; results=res.data||[];
     const expenseIds=expenses.map(x=>x.id); if(expenseIds.length){ const s=await supabase.from('expense_shares').select('*').in('expense_id',expenseIds); shares=s.data||[]; }
   }
-  Object.assign(state,{team,members:members||[],races:races||[],participants,tasks,expenses,shares,vehicles,packing});
+  const [pn,pr]=await Promise.all([supabase.from('private_notes').select('*').order('updated_at',{ascending:false}),supabase.from('prize_entries').select('*').order('awarded_at',{ascending:false})]);
+  Object.assign(state,{team,members:members||[],races:races||[],participants,tasks,expenses,shares,vehicles,packing,results,privateNotes:pn.data||[],prizes:pr.data||[]});
   saveSnapshot();
 }
 
@@ -131,7 +140,7 @@ function subscribeRealtime(){
 }
 
 async function init(){
-  const hashView=location.hash.replace('#',''); if(['dashboard','calendar','races','tasks','costs','team'].includes(hashView)) state.view=hashView;
+  const hashView=location.hash.replace('#',''); if(['dashboard','calendar','races','tasks','results','costs','notes','team'].includes(hashView)) state.view=hashView;
   if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
   if(state.demo){ seedDemo(); state.loading=false; render(); return; }
   const {data:{session}}=await supabase.auth.getSession(); state.user=session?.user||null;
@@ -145,15 +154,15 @@ function mobileNavButton(view,icon,label){ return `<button data-nav="${view}" cl
 function appShell(content,title){
   return `<div class="app-shell">
     <aside class="sidebar"><div class="brand"><div class="brand-mark">CX</div><div><b>CX Trip</b><small>Race manager</small></div></div>
-      <nav class="nav">${navButton('dashboard','⌂','Pulpit')}${navButton('calendar','▦','Kalendarz')}${navButton('races','🏁','Wyścigi')}${navButton('tasks','✓','Zadania')}${navButton('costs','₿','Koszty')}${navButton('team','♟','Ekipa')}</nav>
+      <nav class="nav">${navButton('dashboard','⌂','Pulpit')}${navButton('calendar','▦','Kalendarz')}${navButton('races','🏁','Wyścigi')}${navButton('tasks','✓','Zadania')}${navButton('results','★','Wyniki')}${navButton('costs','₿','Koszty')}${navButton('notes','✎','Notatki')}${navButton('team','♟','Ekipa')}</nav>
       <div class="sidebar-footer"><div class="team-chip"><strong>${esc(state.team?.name||'')}</strong>Kod ekipy: <b>${esc(state.team?.invite_code||'—')}</b></div></div>
     </aside>
     <main class="main"><header class="topbar"><h1>${esc(title)}</h1><div class="top-actions">
-      ${state.view==='tasks' ? '<button class="btn btn-primary hide-mobile" data-add-team-task>+ Dodaj zadanie</button>' : (state.view!=='race' ? '<button class="btn btn-primary hide-mobile" data-add-race>+ Dodaj wyścig</button>':'')}
+      ${state.view==='tasks' ? '<button class="btn btn-primary hide-mobile" data-add-team-task>+ Dodaj zadanie</button>' : state.view==='results' ? '<button class="btn btn-primary hide-mobile" data-add-result>+ Dodaj wynik</button>' : state.view==='notes' ? '<button class="btn btn-primary hide-mobile" data-add-note>+ Notatka</button>' : (state.view!=='race' ? '<button class="btn btn-primary hide-mobile" data-add-race>+ Dodaj wyścig</button>':'')}
       <div class="user-pill"><div class="avatar">${esc(memberInitials(state.user.id))}</div><span>${esc(memberName(state.user.id))}</span></div>
     </div></header><div class="content">${content}</div></main>
-    <nav class="mobile-nav">${mobileNavButton('dashboard','⌂','Pulpit')}${mobileNavButton('calendar','▦','Kalendarz')}${mobileNavButton('races','🏁','Wyścigi')}${mobileNavButton('tasks','✓','Zadania')}${mobileNavButton('costs','₿','Koszty')}${mobileNavButton('team','♟','Ekipa')}</nav>
-    ${state.view==='tasks'?'<button class="fab" data-add-team-task aria-label="Dodaj zadanie">+</button>':(state.view!=='race'?'<button class="fab" data-add-race aria-label="Dodaj wyścig">+</button>':'')}
+    <nav class="mobile-nav">${mobileNavButton('dashboard','⌂','Pulpit')}${mobileNavButton('calendar','▦','Kalendarz')}${mobileNavButton('races','🏁','Wyścigi')}${mobileNavButton('tasks','✓','Zadania')}${mobileNavButton('results','★','Wyniki')}${mobileNavButton('costs','₿','Koszty')}${mobileNavButton('notes','✎','Notatki')}${mobileNavButton('team','♟','Ekipa')}</nav>
+    ${state.view==='tasks'?'<button class="fab" data-add-team-task aria-label="Dodaj zadanie">+</button>':state.view==='results'?'<button class="fab" data-add-result aria-label="Dodaj wynik">+</button>':state.view==='notes'?'<button class="fab" data-add-note aria-label="Dodaj notatkę">+</button>':(state.view!=='race'?'<button class="fab" data-add-race aria-label="Dodaj wyścig">+</button>':'')}
   </div>`;
 }
 
@@ -166,7 +175,9 @@ function render(){
   else if(state.view==='calendar'){title='Kalendarz';content=calendarView();}
   else if(state.view==='races'){title='Wyścigi';content=racesView();}
   else if(state.view==='tasks'){title='Zadania zespołu';content=teamTasksView();}
+  else if(state.view==='results'){title='Wyniki sezonu';content=resultsView();}
   else if(state.view==='costs'){title='Koszty i rozliczenia';content=costsView();}
+  else if(state.view==='notes'){title='Moje prywatne';content=notesView();}
   else if(state.view==='team'){title='Ekipa';content=teamView();}
   else if(state.view==='race'){const r=selectedRace(); if(!r){state.view='races';return render();} title='Szczegóły wyścigu'; content=raceDetailView(r);}
   app.innerHTML=appShell(content,title); bindGlobal();
@@ -229,7 +240,7 @@ function racesView(){
 
 function calendarView(){
   const y=state.calDate.getFullYear(),m=state.calDate.getMonth(); const first=new Date(y,m,1); let start=new Date(first); const dow=(first.getDay()+6)%7; start.setDate(first.getDate()-dow); const days=[];
-  for(let i=0;i<42;i++){const d=new Date(start);d.setDate(start.getDate()+i);const key=isoDate(d);const ev=state.races.filter(r=>r.race_date===key);days.push(`<div class="day ${d.getMonth()!==m?'out':''}"><div class="num">${d.getDate()}</div>${ev.map(r=>`<button class="cal-event" data-open-race="${r.id}" title="${attr(r.name)}">${esc(r.name)}</button>`).join('')}</div>`)}
+  for(let i=0;i<42;i++){const d=new Date(start);d.setDate(start.getDate()+i);const key=isoDate(d);const ev=state.races.filter(r=>r.race_date===key);days.push(`<div class="day ${d.getMonth()!==m?'out':''}"><div class="num">${d.getDate()}</div>${ev.map(r=>`<div class="cal-event-group"><button class="cal-event" data-open-race="${r.id}" title="${attr(r.name)}">${esc(r.name)}</button><button class="cal-results-link" data-open-race="${r.id}" data-tab="results">★ Wyniki${raceResults(r.id).length?' ('+raceResults(r.id).length+')':''}</button></div>`).join('')}</div>`)}
   return `<section class="card"><div class="cal-controls"><button class="btn btn-sm" id="calPrev">←</button><h2>${esc(MONTH.format(state.calDate))}</h2><button class="btn btn-sm" id="calNext">→</button></div><div class="calendar">${['Pon','Wt','Śr','Czw','Pt','Sob','Nd'].map(x=>`<div class="cal-head">${x}</div>`).join('')}${days.join('')}</div></section>`;
 }
 
@@ -266,16 +277,47 @@ function teamView(){
 
 function costsView(){
   const byCat={}; state.expenses.forEach(e=>byCat[e.category]=(byCat[e.category]||0)+Number(e.amount)); const max=Math.max(1,...Object.values(byCat));
-  const raceTotals=[...state.races].map(r=>({r,total:totalExpenses(r.id)})).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
-  return `<div class="grid stats"><div class="stat"><div class="label">Łączne koszty</div><div class="value">${PLN.format(totalExpenses())}</div><div class="sub">wszystkie wpisane wyjazdy</div></div><div class="stat"><div class="label">Koszt / wyścig</div><div class="value">${raceTotals.length?PLN.format(totalExpenses()/raceTotals.length):PLN.format(0)}</div><div class="sub">średnio</div></div><div class="stat"><div class="label">Pozycji kosztowych</div><div class="value">${state.expenses.length}</div><div class="sub">rachunków i płatności</div></div><div class="stat"><div class="label">Najdroższy wyjazd</div><div class="value">${raceTotals[0]?PLN.format(raceTotals[0].total):'—'}</div><div class="sub">${raceTotals[0]?esc(raceTotals[0].r.name):'brak danych'}</div></div></div>
+  const raceTotals=[...state.races].map(r=>({r,total:totalExpenses(r.id)})).filter(x=>x.total>0).sort((a,b)=>String(a.r.race_date).localeCompare(String(b.r.race_date)));
+  const categoryTotal=(rid,cat)=>raceExpenses(rid).filter(e=>e.category===cat).reduce((a,e)=>a+Number(e.amount||0),0);
+  const otherTotal=rid=>raceExpenses(rid).filter(e=>!['hotel','paliwo','startowe'].includes(e.category)).reduce((a,e)=>a+Number(e.amount||0),0);
+  const sheetRows=raceTotals.map(x=>`<tr><td>${fmtDate(x.r.race_date)}</td><td>${esc(x.r.name)}</td><td>${PLN.format(categoryTotal(x.r.id,'hotel'))}</td><td>${PLN.format(categoryTotal(x.r.id,'paliwo'))}</td><td>${PLN.format(categoryTotal(x.r.id,'startowe'))}</td><td>${PLN.format(otherTotal(x.r.id))}</td><td><b>${PLN.format(x.total)}</b></td></tr>`).join('');
+  return `<div class="grid stats"><div class="stat"><div class="label">Łączne koszty</div><div class="value">${PLN.format(totalExpenses())}</div><div class="sub">od początku danych sezonu</div></div><div class="stat"><div class="label">Koszt / wyścig</div><div class="value">${raceTotals.length?PLN.format(totalExpenses()/raceTotals.length):PLN.format(0)}</div><div class="sub">średnio</div></div><div class="stat"><div class="label">Pozycji kosztowych</div><div class="value">${state.expenses.length}</div><div class="sub">rachunków i płatności</div></div><div class="stat"><div class="label">Najdroższy wyjazd</div><div class="value">${raceTotals.length?PLN.format(Math.max(...raceTotals.map(x=>x.total))):'—'}</div><div class="sub">sezon</div></div></div>
     <div class="grid two-col"><section class="card"><div class="card-header"><h2>Koszty wyjazdów</h2><button class="btn btn-sm" id="exportCsv">Eksport CSV</button></div>${raceTotals.length?raceTotals.map(x=>`<div class="expense-row"><div class="grow"><div class="row-title">${esc(x.r.name)}</div><div class="row-sub">${fmtDate(x.r.race_date)} • ${raceExpenses(x.r.id).length} pozycji</div></div><div class="money">${PLN.format(x.total)}</div><button class="btn btn-sm" data-open-race="${x.r.id}" data-tab="costs">Rozlicz</button></div>`).join(''):'<div class="empty">Brak wpisanych kosztów.</div>'}</section>
-    <section class="card"><div class="card-header"><h3>Kategorie</h3></div><div class="cost-bars">${Object.keys(byCat).length?Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="cost-bar"><span>${esc(categoryName(k))}</span><div class="track"><div class="fill" style="width:${Math.round(v/max*100)}%"></div></div><b class="right">${Math.round(v)} zł</b></div>`).join(''):'<div class="empty">Brak danych.</div>'}</div></section></div>`;
+    <section class="card"><div class="card-header"><h3>Kategorie</h3></div><div class="cost-bars">${Object.keys(byCat).length?Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="cost-bar"><span>${esc(categoryName(k))}</span><div class="track"><div class="fill" style="width:${Math.round(v/max*100)}%"></div></div><b class="right">${Math.round(v)} zł</b></div>`).join(''):'<div class="empty">Brak danych.</div>'}</div></section></div>
+    <details class="toy-sheet"><summary>🧮 Mini Excel sezonu <span class="badge info">zabawka</span></summary><div class="toy-sheet-body"><div class="privacy-hint">Automatycznie zlicza wszystkie wpisane koszty. Nie musisz tu nic wpisywać ręcznie.</div><div class="sheet-scroll"><table class="mini-sheet"><thead><tr><th>Data</th><th>Wyścig</th><th>Hotel</th><th>Paliwo</th><th>Startowe</th><th>Inne</th><th>SUMA</th></tr></thead><tbody>${sheetRows||'<tr><td colspan="7">Brak danych</td></tr>'}<tr class="sheet-total"><td></td><td>ŁĄCZNIE</td><td>${PLN.format(byCat.hotel||0)}</td><td>${PLN.format(byCat.paliwo||0)}</td><td>${PLN.format(byCat.startowe||0)}</td><td>${PLN.format(Object.entries(byCat).filter(([k])=>!['hotel','paliwo','startowe'].includes(k)).reduce((a,[,v])=>a+v,0))}</td><td>${PLN.format(totalExpenses())}</td></tr></tbody></table></div></div></details>`;
 }
 function categoryName(k){return ({hotel:'Hotel',paliwo:'Paliwo',startowe:'Startowe',jedzenie:'Jedzenie',parking:'Parking',drogi:'Drogi',inne:'Inne'})[k]||k;}
 
+
+function resultRace(rid){ return state.races.find(r=>r.id===rid); }
+function resultRowHtml(x){
+  const r=resultRace(x.race_id); const own=x.user_id===state.user.id;
+  return `<div class="result-row"><div class="result-place">${esc(x.result_text)}</div><div class="grow"><div class="row-title">${esc(r?.name||'Usunięty wyścig')}</div><div class="row-sub">${r?fmtDate(r.race_date):'—'}${x.category?' • '+esc(x.category):''}</div>${x.note?`<div class="task-note">${esc(x.note)}</div>`:''}</div>${own?`<div class="task-actions"><button class="btn btn-sm" data-edit-result="${x.id}">✎</button><button class="btn btn-sm btn-danger" data-delete-result="${x.id}">×</button></div>`:''}</div>`;
+}
+function resultsView(){
+  const sorted=[...state.results].sort((a,b)=>String(resultRace(b.race_id)?.race_date||'').localeCompare(String(resultRace(a.race_id)?.race_date||'')));
+  const mine=sorted.filter(x=>x.user_id===state.user.id);
+  const cards=state.members.map(m=>{const rows=sorted.filter(x=>x.user_id===m.user_id);return `<details class="result-member-card" ${m.user_id===state.user.id?'open':''}><summary><div class="task-person-head"><div class="avatar">${esc(memberInitials(m.user_id))}</div><div><b>${esc(m.display_name)}</b><small>${rows.length} wyników w sezonie</small></div></div><span class="badge info">${rows.length}</span></summary><div class="result-list">${rows.length?rows.map(resultRowHtml).join(''):'<div class="empty compact">Brak wpisanych wyników.</div>'}</div></details>`}).join('');
+  return `<div class="grid stats"><div class="stat"><div class="label">Wyniki ekipy</div><div class="value">${state.results.length}</div><div class="sub">wpisów w sezonie</div></div><div class="stat"><div class="label">Moje wyniki</div><div class="value">${mine.length}</div><div class="sub">${esc(memberName(state.user.id))}</div></div><div class="stat"><div class="label">Wyścigi z wynikami</div><div class="value">${new Set(state.results.map(x=>x.race_id)).size}</div><div class="sub">z kalendarza</div></div><div class="stat"><div class="label">Ostatni wpis</div><div class="value small-value">${mine[0]?esc(mine[0].result_text):'—'}</div><div class="sub">${mine[0]?esc(resultRace(mine[0].race_id)?.name||''):'brak'}</div></div></div><div class="toolbar"><div class="privacy-hint grow">Nazwa wyścigu jest pobierana automatycznie z kalendarza. Każdy zapisuje i edytuje własny wynik, a cała ekipa może go zobaczyć.</div><button class="btn btn-primary" data-add-result>+ Dodaj mój wynik</button></div><div class="result-board">${cards}</div>`;
+}
+function detailResults(r){
+  const rows=raceResults(r.id).sort((a,b)=>memberName(a.user_id).localeCompare(memberName(b.user_id),'pl'));
+  const mine=rows.find(x=>x.user_id===state.user.id);
+  return `<section class="card"><div class="card-header"><div><h2>Wyniki — ${esc(r.name)}</h2><div class="muted small">Każdy członek wpisuje swój wynik.</div></div><button class="btn btn-primary" data-add-result data-race-id="${r.id}">${mine?'Edytuj mój wynik':'+ Dodaj mój wynik'}</button></div>${rows.length?rows.map(x=>`<div class="person-result"><div class="avatar">${esc(memberInitials(x.user_id))}</div><div class="grow"><div class="row-title">${esc(memberName(x.user_id))}</div><div class="row-sub">${x.category?esc(x.category):'Bez kategorii'}${x.note?' • '+esc(x.note):''}</div></div><div class="result-place">${esc(x.result_text)}</div>${x.user_id===state.user.id?`<button class="btn btn-sm" data-edit-result="${x.id}">Edytuj</button>`:''}</div>`).join(''):'<div class="empty">Nikt jeszcze nie wpisał wyniku.</div>'}</section>`;
+}
+function notesView(){
+  const notes=[...myPrivateNotes()].sort((a,b)=>String(b.updated_at||b.created_at||'').localeCompare(String(a.updated_at||a.created_at||'')));
+  const prizes=[...myPrizeEntries()].sort((a,b)=>String(b.awarded_at||'').localeCompare(String(a.awarded_at||'')));
+  const prizeTotal=prizes.reduce((a,x)=>a+Number(x.amount||0),0);
+  return `<div class="privacy-banner"><div class="privacy-lock">🔒</div><div><b>Prywatna strefa ${esc(memberName(state.user.id))}</b><p>Te dane widzisz tylko Ty. Inni członkowie ekipy — także administrator — nie mają do nich dostępu.</p></div></div>
+    <div class="toolbar"><div class="grow"><h2 style="margin:0">Moje notatki</h2><div class="muted small">Luźne informacje, ustawienia, przypomnienia — tylko dla Ciebie.</div></div><button class="btn btn-primary" data-add-note>+ Nowa notatka</button></div>
+    <div class="private-note-grid">${notes.length?notes.map(n=>`<article class="card private-note"><div class="card-header"><h3>${esc(n.title)}</h3><div class="task-actions"><button class="btn btn-sm" data-edit-note="${n.id}">✎</button><button class="btn btn-sm btn-danger" data-delete-note="${n.id}">×</button></div></div><div class="private-note-body">${esc(n.body||'')}</div><div class="row-sub">🔒 Tylko Ty • ${n.updated_at?new Date(n.updated_at).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}</div></article>`).join(''):'<section class="card"><div class="empty">Nie masz jeszcze prywatnych notatek.</div></section>'}</div>
+    <details class="toy-sheet private-prize-sheet"><summary>💸 Mój prywatny Excel — nagrody z wyścigów <span class="badge ok">${PLN.format(prizeTotal)}</span></summary><div class="toy-sheet-body"><div class="privacy-hint">🔒 Tylko Ty widzisz te kwoty. To jest Twój prywatny licznik nagród pieniężnych.</div><div class="sheet-actions"><div><div class="sheet-big-total">${PLN.format(prizeTotal)}</div><div class="muted small">wygrane łącznie</div></div><button class="btn btn-primary" data-add-prize>+ Dodaj nagrodę</button></div><div class="sheet-scroll"><table class="mini-sheet"><thead><tr><th>Data</th><th>Wyścig</th><th>Kwota</th><th>Notatka</th><th></th></tr></thead><tbody>${prizes.length?prizes.map(x=>`<tr><td>${fmtDate(x.awarded_at)}</td><td>${esc(x.race_name||resultRace(x.race_id)?.name||'—')}</td><td><b>${PLN.format(Number(x.amount))}</b></td><td>${esc(x.note||'')}</td><td><button class="btn btn-sm" data-edit-prize="${x.id}">✎</button> <button class="btn btn-sm btn-danger" data-delete-prize="${x.id}">×</button></td></tr>`).join(''):'<tr><td colspan="5">Brak nagród.</td></tr>'}<tr class="sheet-total"><td></td><td>SUMA</td><td>${PLN.format(prizeTotal)}</td><td></td><td></td></tr></tbody></table></div></div></details>`;
+}
+
 function raceDetailView(r){
-  const tabs=[['overview','Podsumowanie'],['squad','Skład'],['hotel','Hotel'],['tasks','Zadania'],['transport','Transport'],['costs','Koszty'],['packing','Sprzęt']];
-  let body=''; if(state.detailTab==='overview')body=detailOverview(r); if(state.detailTab==='squad')body=detailSquad(r); if(state.detailTab==='hotel')body=detailHotel(r); if(state.detailTab==='tasks')body=detailTasks(r); if(state.detailTab==='transport')body=detailTransport(r); if(state.detailTab==='costs')body=detailCosts(r); if(state.detailTab==='packing')body=detailPacking(r);
+  const tabs=[['overview','Podsumowanie'],['squad','Skład'],['hotel','Hotel'],['results','Wyniki'],['tasks','Zadania'],['transport','Transport'],['costs','Koszty'],['packing','Sprzęt']];
+  let body=''; if(state.detailTab==='overview')body=detailOverview(r); if(state.detailTab==='squad')body=detailSquad(r); if(state.detailTab==='hotel')body=detailHotel(r); if(state.detailTab==='results')body=detailResults(r); if(state.detailTab==='tasks')body=detailTasks(r); if(state.detailTab==='transport')body=detailTransport(r); if(state.detailTab==='costs')body=detailCosts(r); if(state.detailTab==='packing')body=detailPacking(r);
   return `<div class="detail-head"><div><button class="link-btn" data-nav="races">← Wyścigi</button><h2>${esc(r.name)}</h2><div class="kpi-line">${raceStatusBadge(r)}${hotelBadge(r)}<span class="badge">📅 ${fmtDate(r.race_date)}</span><span class="badge">👥 ${participantCount(r.id)} jedzie</span></div></div><div class="detail-actions"><button class="btn" id="icsBtn">+ Kalendarz</button><button class="btn" id="printBtn">Drukuj</button><button class="btn btn-primary" id="editRace">Edytuj</button></div></div>
     <div class="detail-tabs">${tabs.map(([k,l])=>`<button data-detail-tab="${k}" class="${state.detailTab===k?'active':''}">${l}</button>`).join('')}</div>${body}`;
 }
@@ -293,7 +335,9 @@ function detailSquad(r){
 }
 
 function detailHotel(r){
-  return `<div class="grid two-col"><section class="card"><div class="card-header"><h2>Hotel / nocleg</h2>${hotelBadge(r)}</div><div class="info-list"><div class="info-item"><div class="ii">🏨</div><div><small>Nazwa</small><b>${esc(r.hotel_name||'Nie wybrano')}</b></div></div><div class="info-item"><div class="ii">📍</div><div><small>Adres</small><b>${esc(r.hotel_address||'—')}</b>${r.hotel_address?`<div style="margin-top:7px"><button class="link-btn" data-map="${attr(r.hotel_address)}">Otwórz mapę ↗</button></div>`:''}</div></div><div class="info-item"><div class="ii">🛏</div><div><small>Pokoje</small><b>${esc(r.hotel_rooms||'—')}</b></div></div><div class="info-item"><div class="ii">💳</div><div><small>Cena</small><b>${r.hotel_price?PLN.format(r.hotel_price):'—'}</b></div></div></div></section><section class="card"><div class="card-header"><h3>Informacje o rezerwacji</h3></div><div class="muted" style="white-space:pre-wrap">${esc(r.hotel_notes||'Brak dodatkowych informacji.')}</div>${r.hotel_url?`<div class="separator"></div><a class="btn" href="${attr(r.hotel_url)}" target="_blank" rel="noopener">Otwórz rezerwację ↗</a>`:''}</section></div>`;
+  const hotelExpenses=raceExpenses(r.id).filter(e=>e.category==='hotel').sort((a,b)=>String(b.paid_at).localeCompare(String(a.paid_at)));
+  return `<div class="grid two-col"><section class="card"><div class="card-header"><h2>Hotel / nocleg</h2>${hotelBadge(r)}</div><div class="info-list"><div class="info-item"><div class="ii">🏨</div><div><small>Nazwa</small><b>${esc(r.hotel_name||'Nie wybrano')}</b></div></div><div class="info-item"><div class="ii">📍</div><div><small>Adres</small><b>${esc(r.hotel_address||'—')}</b>${r.hotel_address?`<div style="margin-top:7px"><button class="link-btn" data-map="${attr(r.hotel_address)}">Otwórz mapę ↗</button></div>`:''}</div></div><div class="info-item"><div class="ii">🛏</div><div><small>Pobyt</small><b>${Number(r.hotel_stay_days||1)===2?'2 dni':'1 dzień'} • ${esc(r.hotel_rooms||'pokoje nieuzupełnione')}</b></div></div><div class="info-item"><div class="ii">💳</div><div><small>Cena</small><b>${r.hotel_price?PLN.format(r.hotel_price):'—'}</b></div></div><div class="info-item"><div class="ii">✓</div><div><small>Ogólny status rozliczenia hotelu</small><select class="inline-select" data-hotel-payment="${r.id}"><option value="nierozliczone" ${(r.hotel_payment_status||'nierozliczone')==='nierozliczone'?'selected':''}>Nierozliczone</option><option value="rozliczone" ${r.hotel_payment_status==='rozliczone'?'selected':''}>Rozliczone</option><option value="na_miejscu" ${r.hotel_payment_status==='na_miejscu'?'selected':''}>Na miejscu</option></select></div></div></div></section><section class="card"><div class="card-header"><h3>Informacje o rezerwacji</h3></div><div class="muted" style="white-space:pre-wrap">${esc(r.hotel_notes||'Brak dodatkowych informacji.')}</div>${r.hotel_url?`<div class="separator"></div><a class="btn" href="${attr(r.hotel_url)}" target="_blank" rel="noopener">Otwórz rezerwację ↗</a>`:''}</section></div>
+    <section class="card" style="margin-top:16px"><div class="card-header"><div><h3>Rozliczenie hotelu — osoby</h3><div class="muted small">Status każdej osoby możesz zmienić na: nierozliczone, rozliczone albo na miejscu.</div></div><button class="btn btn-sm" data-detail-tab="costs">Koszty</button></div>${hotelExpenses.length?hotelExpenses.map(expenseCardHtml).join(''):'<div class="empty">Nie ma jeszcze kosztu w kategorii „Hotel”. Dodaj go w zakładce Koszty, a tutaj pojawi się rozliczenie wszystkich zaznaczonych osób.</div>'}</section>`;
 }
 
 function detailTasks(r){
@@ -306,17 +350,30 @@ function detailTransport(r){
 }
 
 function balanceData(rid){
-  const paid={},owed={}; state.members.forEach(m=>{paid[m.user_id]=0;owed[m.user_id]=0});
-  raceExpenses(rid).forEach(e=>paid[e.payer_id]=(paid[e.payer_id]||0)+Number(e.amount)); raceShareRows(rid).forEach(s=>owed[s.user_id]=(owed[s.user_id]||0)+Number(s.share_amount));
-  const balances=state.members.map(m=>({id:m.user_id,name:m.display_name,net:(paid[m.user_id]||0)-(owed[m.user_id]||0)}));
+  const net={}; state.members.forEach(m=>net[m.user_id]=0);
+  raceExpenses(rid).forEach(e=>{
+    const shares=state.shares.filter(s=>s.expense_id===e.id && (s.settlement_status||'nierozliczone')==='nierozliczone');
+    shares.forEach(s=>{
+      if(s.user_id===e.payer_id)return;
+      const amount=Number(s.share_amount||0);
+      net[s.user_id]=(net[s.user_id]||0)-amount;
+      net[e.payer_id]=(net[e.payer_id]||0)+amount;
+    });
+  });
+  const balances=state.members.map(m=>({id:m.user_id,name:m.display_name,net:net[m.user_id]||0}));
   const creditors=balances.filter(x=>x.net>.005).map(x=>({...x})).sort((a,b)=>b.net-a.net), debtors=balances.filter(x=>x.net<-.005).map(x=>({...x,net:-x.net})).sort((a,b)=>b.net-a.net), settlements=[];
   let i=0,j=0; while(i<debtors.length&&j<creditors.length){const a=Math.min(debtors[i].net,creditors[j].net);settlements.push({from:debtors[i].name,to:creditors[j].name,amount:a});debtors[i].net-=a;creditors[j].net-=a;if(debtors[i].net<.01)i++;if(creditors[j].net<.01)j++;}
-  return {paid,owed,balances,settlements};
+  return {balances,settlements};
+}
+function expenseCardHtml(e){
+  const shares=state.shares.filter(s=>s.expense_id===e.id).sort((a,b)=>memberName(a.user_id).localeCompare(memberName(b.user_id),'pl'));
+  return `<div class="expense-card"><div class="expense-card-head"><div><div class="row-title">${esc(e.description)}</div><div class="row-sub">${esc(categoryName(e.category))} • zapłacił(a): ${esc(memberName(e.payer_id))} • ${fmtDate(e.paid_at)}</div></div><div class="money">${PLN.format(Number(e.amount))}</div><button class="btn btn-sm btn-danger" data-delete-expense="${e.id}">×</button></div><div class="share-grid">${shares.map(s=>`<div class="share-person"><div><b>${esc(memberName(s.user_id))}</b><small>${PLN.format(Number(s.share_amount))}${s.user_id===e.payer_id?' • płatnik':''}</small></div><select data-share-status="${s.id}" class="settlement-select ${settlementClass(s.settlement_status||'nierozliczone')}"><option value="nierozliczone" ${(s.settlement_status||'nierozliczone')==='nierozliczone'?'selected':''}>Nierozliczone</option><option value="rozliczone" ${s.settlement_status==='rozliczone'?'selected':''}>Rozliczone</option><option value="na_miejscu" ${s.settlement_status==='na_miejscu'?'selected':''}>Na miejscu</option></select></div>`).join('')}</div></div>`;
 }
 function detailCosts(r){
   const ex=raceExpenses(r.id).sort((a,b)=>String(b.paid_at).localeCompare(String(a.paid_at))); const bal=balanceData(r.id);
-  return `<div class="grid two-col"><div class="stack"><section class="card"><div class="card-header"><h2>Koszty</h2><b>${PLN.format(totalExpenses(r.id))}</b></div>${ex.length?ex.map(e=>`<div class="expense-row"><div class="grow"><div class="row-title">${esc(e.description)}</div><div class="row-sub">${esc(categoryName(e.category))} • zapłacił(a): ${esc(memberName(e.payer_id))} • ${fmtDate(e.paid_at)}</div></div><div class="money">${PLN.format(Number(e.amount))}</div><button class="btn btn-sm btn-danger" data-delete-expense="${e.id}">×</button></div>`).join(''):'<div class="empty">Brak kosztów.</div>'}</section><section class="card"><div class="card-header"><h3>Rozliczenie</h3></div>${bal.settlements.length?bal.settlements.map(s=>`<div class="settlement"><span>${esc(s.from)} → ${esc(s.to)}</span><b>${PLN.format(s.amount)}</b></div>`).join(''):'<div class="empty" style="padding:20px">Brak kwot do wyrównania.</div>'}</section></div>
-    <section class="card"><div class="card-header"><h3>Dodaj koszt</h3></div><form id="expenseForm" class="stack"><label>Za co<input name="description" required placeholder="np. Hotel"></label><div class="form-grid"><label>Kwota<input name="amount" type="number" min="0" step="0.01" required></label><label>Kategoria<select name="category"><option value="hotel">Hotel</option><option value="paliwo">Paliwo</option><option value="startowe">Startowe</option><option value="jedzenie">Jedzenie</option><option value="parking">Parking</option><option value="drogi">Drogi</option><option value="inne">Inne</option></select></label></div><label>Zapłacił(a)<select name="payer_id">${memberOptions(state.user.id)}</select></label><label>Dotyczy kogo?<div class="stack" style="gap:7px;margin-top:4px">${state.members.map(m=>`<span class="checkbox-line"><input type="checkbox" name="share_user" value="${m.user_id}" ${raceParts(r.id).find(p=>p.user_id===m.user_id&&p.status==='jedzie')?'checked':''}> ${esc(m.display_name)}</span>`).join('')}</div></label><button class="btn btn-primary">Dodaj i podziel równo</button></form></section></div>`;
+  const unsettled=state.shares.filter(s=>ex.some(e=>e.id===s.expense_id)&&(s.settlement_status||'nierozliczone')==='nierozliczone').length;
+  return `<div class="grid two-col"><div class="stack"><section class="card"><div class="card-header"><div><h2>Koszty</h2><div class="muted small">${unsettled} udziałów nierozliczonych</div></div><b>${PLN.format(totalExpenses(r.id))}</b></div>${ex.length?ex.map(expenseCardHtml).join(''):'<div class="empty">Brak kosztów.</div>'}</section><section class="card"><div class="card-header"><h3>Kto komu — tylko nierozliczone</h3></div>${bal.settlements.length?bal.settlements.map(s=>`<div class="settlement"><span>${esc(s.from)} → ${esc(s.to)}</span><b>${PLN.format(s.amount)}</b></div>`).join(''):'<div class="empty" style="padding:20px">✓ Wszystko rozliczone lub oznaczone „na miejscu”.</div>'}</section></div>
+    <section class="card"><div class="card-header"><h3>Dodaj koszt</h3></div><form id="expenseForm" class="stack"><label>Za co<input name="description" required placeholder="np. Hotel"></label><div class="form-grid"><label>Kwota<input name="amount" type="number" min="0" step="0.01" required></label><label>Kategoria<select name="category"><option value="hotel">Hotel</option><option value="paliwo">Paliwo</option><option value="startowe">Startowe</option><option value="jedzenie">Jedzenie</option><option value="parking">Parking</option><option value="drogi">Drogi</option><option value="inne">Inne</option></select></label></div><label>Zapłacił(a)<select name="payer_id">${memberOptions(state.user.id)}</select></label><label>Dotyczy kogo?<div class="stack" style="gap:7px;margin-top:4px">${state.members.map(m=>`<span class="checkbox-line"><input type="checkbox" name="share_user" value="${m.user_id}" ${raceParts(r.id).find(p=>p.user_id===m.user_id&&p.status==='jedzie')?'checked':''}> ${esc(m.display_name)}</span>`).join('')}</div></label><div class="privacy-hint">Po dodaniu kosztu każda zaznaczona osoba dostanie osobny status: nierozliczone / rozliczone / na miejscu.</div><button class="btn btn-primary">Dodaj i podziel równo</button></form></section></div>`;
 }
 
 function detailPacking(r){
@@ -325,13 +382,22 @@ function detailPacking(r){
 function memberOptions(selected=''){return state.members.map(m=>`<option value="${m.user_id}" ${m.user_id===selected?'selected':''}>${esc(m.display_name)}</option>`).join('');}
 
 function bindGlobal(){
-  document.querySelectorAll('[data-nav]').forEach(b=>b.addEventListener('click',()=>{state.view=b.dataset.nav;state.selectedRaceId=null;if(['dashboard','calendar','races','tasks','costs','team'].includes(state.view))history.replaceState(null,'','#'+state.view);render()}));
+  document.querySelectorAll('[data-nav]').forEach(b=>b.addEventListener('click',()=>{state.view=b.dataset.nav;state.selectedRaceId=null;if(['dashboard','calendar','races','tasks','results','costs','notes','team'].includes(state.view))history.replaceState(null,'','#'+state.view);render()}));
   document.querySelectorAll('[data-add-race]').forEach(b=>b.addEventListener('click',()=>openRaceModal()));
   document.querySelectorAll('[data-add-team-task]').forEach(b=>b.addEventListener('click',()=>openTaskModal()));
   document.querySelectorAll('[data-task-member]').forEach(b=>b.addEventListener('click',()=>openTaskModal(null,b.dataset.taskMember)));
   document.querySelectorAll('[data-edit-team-task]').forEach(b=>b.addEventListener('click',()=>openTaskModal(state.tasks.find(t=>t.id===b.dataset.editTeamTask))));
   document.querySelectorAll('[data-task-toggle]').forEach(x=>x.addEventListener('change',e=>updateRow('tasks',e.target.dataset.taskToggle,{done:e.target.checked})));
   document.querySelectorAll('[data-delete-task]').forEach(x=>x.addEventListener('click',()=>deleteRow('tasks',x.dataset.deleteTask)));
+  document.querySelectorAll('[data-add-result]').forEach(b=>b.addEventListener('click',()=>{const rid=b.dataset.raceId||'';const existing=rid?state.results.find(x=>x.race_id===rid&&x.user_id===state.user.id):null;openResultModal(existing||null,rid)}));
+  document.querySelectorAll('[data-edit-result]').forEach(b=>b.addEventListener('click',()=>openResultModal(state.results.find(x=>x.id===b.dataset.editResult))));
+  document.querySelectorAll('[data-delete-result]').forEach(b=>b.addEventListener('click',async()=>{if(confirm('Usunąć ten wynik?'))await deleteRow('race_results',b.dataset.deleteResult,'results')}));
+  document.querySelectorAll('[data-add-note]').forEach(b=>b.addEventListener('click',()=>openNoteModal()));
+  document.querySelectorAll('[data-edit-note]').forEach(b=>b.addEventListener('click',()=>openNoteModal(state.privateNotes.find(x=>x.id===b.dataset.editNote))));
+  document.querySelectorAll('[data-delete-note]').forEach(b=>b.addEventListener('click',async()=>{if(confirm('Usunąć prywatną notatkę?'))await deleteRow('private_notes',b.dataset.deleteNote,'privateNotes')}));
+  document.querySelectorAll('[data-add-prize]').forEach(b=>b.addEventListener('click',()=>openPrizeModal()));
+  document.querySelectorAll('[data-edit-prize]').forEach(b=>b.addEventListener('click',()=>openPrizeModal(state.prizes.find(x=>x.id===b.dataset.editPrize))));
+  document.querySelectorAll('[data-delete-prize]').forEach(b=>b.addEventListener('click',async()=>{if(confirm('Usunąć tę nagrodę?'))await deleteRow('prize_entries',b.dataset.deletePrize,'prizes')}));
   document.querySelectorAll('[data-open-race]').forEach(b=>b.addEventListener('click',()=>{state.selectedRaceId=b.dataset.openRace;state.view='race';state.detailTab=b.dataset.tab||'overview';render()}));
   document.querySelectorAll('[data-detail-tab]').forEach(b=>b.addEventListener('click',()=>{state.detailTab=b.dataset.detailTab;render()}));
   document.querySelectorAll('[data-map]').forEach(b=>b.addEventListener('click',()=>window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(b.dataset.map)}`,'_blank')));
@@ -353,6 +419,8 @@ function bindRaceDetail(){
   document.querySelectorAll('[data-participant-user]').forEach(s=>s.addEventListener('change',async e=>{await upsertParticipant(e.target.dataset.race,e.target.dataset.participantUser,e.target.value)}));
   document.querySelectorAll('[data-packing-toggle]').forEach(x=>x.addEventListener('change',e=>updateRow('packing_items',e.target.dataset.packingToggle,{done:e.target.checked},'packing'))); document.querySelectorAll('[data-delete-packing]').forEach(x=>x.addEventListener('click',()=>deleteRow('packing_items',x.dataset.deletePacking,'packing')));
   document.querySelectorAll('[data-delete-vehicle]').forEach(x=>x.addEventListener('click',()=>deleteRow('race_vehicles',x.dataset.deleteVehicle,'vehicles'))); document.querySelectorAll('[data-delete-expense]').forEach(x=>x.addEventListener('click',()=>deleteExpense(x.dataset.deleteExpense)));
+  document.querySelectorAll('[data-share-status]').forEach(x=>x.addEventListener('change',e=>updateRow('expense_shares',e.target.dataset.shareStatus,{settlement_status:e.target.value},'shares')));
+  document.querySelectorAll('[data-hotel-payment]').forEach(x=>x.addEventListener('change',e=>updateRow('races',e.target.dataset.hotelPayment,{hotel_payment_status:e.target.value},'races')));
   document.querySelector('#taskForm')?.addEventListener('submit',e=>submitTask(e,r)); document.querySelector('#vehicleForm')?.addEventListener('submit',e=>submitVehicle(e,r)); document.querySelector('#packingForm')?.addEventListener('submit',e=>submitPacking(e,r)); document.querySelector('#expenseForm')?.addEventListener('submit',e=>submitExpense(e,r));
 }
 
@@ -376,12 +444,41 @@ async function saveTeamTask(id,row){
   if(id){const {error}=await supabase.from('tasks').update(row).eq('id',id);if(error)throw error;}else{const {error}=await supabase.from('tasks').insert({...row,created_by:state.user.id});if(error)throw error;}await loadRealData();
 }
 
+
+function openResultModal(result=null,presetRaceId=''){
+  const editing=Boolean(result); const raceId=result?.race_id||presetRaceId||'';
+  const sorted=[...state.races].sort((a,b)=>String(b.race_date).localeCompare(String(a.race_date)));
+  const el=modal(`<div class="modal"><div class="modal-header"><h2>${editing?'Edytuj mój wynik':'Dodaj mój wynik'}</h2><button class="btn icon-btn" data-close-modal>×</button></div><form id="resultForm"><div class="modal-body"><div class="privacy-hint">Wynik będzie widoczny dla całej ekipy. Edytować może go tylko ${esc(memberName(state.user.id))}.</div><div class="form-grid" style="margin-top:14px"><label class="full">Wyścig z kalendarza<select name="race_id" required><option value="">— wybierz wyścig —</option>${sorted.map(r=>`<option value="${r.id}" ${r.id===raceId?'selected':''}>${esc(r.name)} — ${fmtDate(r.race_date)}</option>`).join('')}</select></label><label>Wynik<input name="result_text" required value="${attr(result?.result_text||'')}" placeholder="np. 3. miejsce / DNF / 12."></label><label>Kategoria<input name="category" value="${attr(result?.category||'')}" placeholder="np. Junior"></label><label class="full">Notatka<textarea name="note" placeholder="Opcjonalnie: przebieg wyścigu, strata, uwagi…">${esc(result?.note||'')}</textarea></label></div></div><div class="modal-footer"><button type="button" class="btn" data-close-modal>Anuluj</button><button class="btn btn-primary">${editing?'Zapisz wynik':'Dodaj wynik'}</button></div></form></div>`);
+  el.querySelector('#resultForm').addEventListener('submit',async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));try{await saveResult(result?.id,{race_id:f.race_id,user_id:state.user.id,result_text:f.result_text.trim(),category:f.category?.trim()||null,note:f.note?.trim()||null});el.remove();render();toast('Wynik zapisany');}catch(x){toast(x.message||'Nie udało się zapisać wyniku',true)}});
+}
+async function saveResult(id,row){
+  if(state.demo){const existing=id?state.results.find(x=>x.id===id):state.results.find(x=>x.race_id===row.race_id&&x.user_id===state.user.id);if(existing)Object.assign(existing,row,{updated_at:new Date().toISOString()});else state.results.push({id:uid(),...row,created_at:new Date().toISOString(),updated_at:new Date().toISOString()});saveDemo();return;}
+  if(id){const {error}=await supabase.from('race_results').update(row).eq('id',id);if(error)throw error;}else{const {error}=await supabase.from('race_results').upsert(row,{onConflict:'race_id,user_id'});if(error)throw error;}await loadRealData();
+}
+function openNoteModal(note=null){
+  const editing=Boolean(note); const el=modal(`<div class="modal"><div class="modal-header"><h2>${editing?'Edytuj prywatną notatkę':'Nowa prywatna notatka'}</h2><button class="btn icon-btn" data-close-modal>×</button></div><form id="noteForm"><div class="modal-body"><div class="privacy-hint">🔒 Tylko Ty masz dostęp do tej notatki.</div><div class="stack" style="margin-top:14px"><label>Tytuł<input name="title" required value="${attr(note?.title||'')}" placeholder="np. Ustawienia opon"></label><label>Treść<textarea name="body" style="min-height:220px" placeholder="Zapisz cokolwiek dla siebie…">${esc(note?.body||'')}</textarea></label></div></div><div class="modal-footer"><button type="button" class="btn" data-close-modal>Anuluj</button><button class="btn btn-primary">Zapisz</button></div></form></div>`);
+  el.querySelector('#noteForm').addEventListener('submit',async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));try{await savePrivateNote(note?.id,{user_id:state.user.id,title:f.title.trim(),body:f.body?.trim()||null});el.remove();render();toast('Prywatna notatka zapisana');}catch(x){toast(x.message,true)}});
+}
+async function savePrivateNote(id,row){
+  if(state.demo){if(id){const n=state.privateNotes.find(x=>x.id===id);if(n)Object.assign(n,row,{updated_at:new Date().toISOString()});}else state.privateNotes.push({id:uid(),...row,created_at:new Date().toISOString(),updated_at:new Date().toISOString()});saveDemo();return;}
+  if(id){const {error}=await supabase.from('private_notes').update(row).eq('id',id);if(error)throw error;}else{const {error}=await supabase.from('private_notes').insert(row);if(error)throw error;}await loadRealData();
+}
+function openPrizeModal(entry=null){
+  const editing=Boolean(entry); const raceId=entry?.race_id||''; const sorted=[...state.races].sort((a,b)=>String(b.race_date).localeCompare(String(a.race_date)));
+  const el=modal(`<div class="modal"><div class="modal-header"><h2>${editing?'Edytuj nagrodę':'Dodaj nagrodę pieniężną'}</h2><button class="btn icon-btn" data-close-modal>×</button></div><form id="prizeForm"><div class="modal-body"><div class="privacy-hint">🔒 Ten arkusz i wszystkie kwoty są widoczne wyłącznie dla Ciebie.</div><div class="form-grid" style="margin-top:14px"><label class="full">Wyścig<select name="race_id"><option value="">— inny / bez wyścigu z kalendarza —</option>${sorted.map(r=>`<option value="${r.id}" ${r.id===raceId?'selected':''}>${esc(r.name)} — ${fmtDate(r.race_date)}</option>`).join('')}</select></label><label class="full">Nazwa ręczna (opcjonalnie)<input name="race_name" value="${attr(entry?.race_name||'')}" placeholder="Używana, jeśli nie wybierzesz wyścigu"></label><label>Kwota nagrody<input name="amount" type="number" min="0" step="0.01" required value="${attr(entry?.amount||'')}"></label><label>Data<input name="awarded_at" type="date" required value="${attr(entry?.awarded_at||isoDate(new Date()))}"></label><label class="full">Notatka<input name="note" value="${attr(entry?.note||'')}" placeholder="np. premia za podium"></label></div></div><div class="modal-footer"><button type="button" class="btn" data-close-modal>Anuluj</button><button class="btn btn-primary">Zapisz</button></div></form></div>`);
+  el.querySelector('#prizeForm').addEventListener('submit',async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));const rr=state.races.find(r=>r.id===f.race_id);const row={user_id:state.user.id,race_id:f.race_id||null,race_name:rr?.name||f.race_name?.trim()||null,amount:Number(f.amount),awarded_at:f.awarded_at,note:f.note?.trim()||null};try{await savePrize(entry?.id,row);el.remove();render();toast('Nagroda zapisana');}catch(x){toast(x.message,true)}});
+}
+async function savePrize(id,row){
+  if(state.demo){if(id){const x=state.prizes.find(v=>v.id===id);if(x)Object.assign(x,row);}else state.prizes.push({id:uid(),...row,created_at:new Date().toISOString()});saveDemo();return;}
+  if(id){const {error}=await supabase.from('prize_entries').update(row).eq('id',id);if(error)throw error;}else{const {error}=await supabase.from('prize_entries').insert(row);if(error)throw error;}await loadRealData();
+}
+
 function openRaceModal(r=null){
   const editing=Boolean(r); const el=modal(`<div class="modal"><div class="modal-header"><h2>${editing?'Edytuj wyścig':'Dodaj nowy wyścig'}</h2><button class="btn icon-btn" data-close-modal>×</button></div><form id="raceForm"><div class="modal-body"><div class="form-grid">
     <label class="full">Nazwa wyścigu<input name="name" required value="${attr(r?.name||'')}" placeholder="np. Puchar Polski CX — Szczekociny"></label><label>Data<input type="date" name="race_date" required value="${attr(r?.race_date||isoDate(new Date()))}"></label><label>Godzina startu<input type="time" name="start_time" value="${attr(String(r?.start_time||'').slice(0,5))}"></label><label>Miejscowość<input name="city" value="${attr(r?.city||'')}"></label><label>Kategoria<input name="category" value="${attr(r?.category||'')}"></label><label class="full">Dokładna lokalizacja wyścigu<input name="race_address" value="${attr(r?.race_address||'')}"></label><label>Link do zapisów / strony<input type="url" name="registration_url" value="${attr(r?.registration_url||'')}"></label><label>Status<select name="status"><option value="planowany" ${r?.status==='planowany'?'selected':''}>Planowany</option><option value="potwierdzony" ${r?.status==='potwierdzony'?'selected':''}>Potwierdzony</option><option value="zakonczony" ${r?.status==='zakonczony'?'selected':''}>Zakończony</option><option value="odwolany" ${r?.status==='odwolany'?'selected':''}>Odwołany</option></select></label>
-    <label>Hotel — status<select name="hotel_status"><option value="brak" ${(!r||r.hotel_status==='brak')?'selected':''}>Brak</option><option value="szukamy" ${r?.hotel_status==='szukamy'?'selected':''}>Szukamy</option><option value="zarezerwowany" ${r?.hotel_status==='zarezerwowany'?'selected':''}>Zarezerwowany</option><option value="oplacony" ${r?.hotel_status==='oplacony'?'selected':''}>Opłacony</option></select></label><label>Hotel — nazwa<input name="hotel_name" value="${attr(r?.hotel_name||'')}"></label><label class="full">Hotel — adres<input name="hotel_address" value="${attr(r?.hotel_address||'')}"></label><label>Pokoje<input name="hotel_rooms" value="${attr(r?.hotel_rooms||'')}" placeholder="np. 2×2 + 1×1"></label><label>Cena hotelu<input type="number" min="0" step="0.01" name="hotel_price" value="${attr(r?.hotel_price||'')}"></label><label class="full">Link do hotelu / rezerwacji<input type="url" name="hotel_url" value="${attr(r?.hotel_url||'')}"></label><label class="full">Notatka hotelowa<textarea name="hotel_notes">${esc(r?.hotel_notes||'')}</textarea></label><label class="full">Notatki o wyścigu<textarea name="race_notes">${esc(r?.race_notes||'')}</textarea></label><label class="full">Notatki transportowe<textarea name="transport_notes">${esc(r?.transport_notes||'')}</textarea></label>
+    <label>Hotel — status<select name="hotel_status"><option value="brak" ${(!r||r.hotel_status==='brak')?'selected':''}>Brak</option><option value="szukamy" ${r?.hotel_status==='szukamy'?'selected':''}>Szukamy</option><option value="zarezerwowany" ${r?.hotel_status==='zarezerwowany'?'selected':''}>Zarezerwowany</option><option value="oplacony" ${r?.hotel_status==='oplacony'?'selected':''}>Opłacony</option></select></label><label>Pobyt hotelowy<select name="hotel_stay_days"><option value="1" ${Number(r?.hotel_stay_days||1)===1?'selected':''}>1 dzień</option><option value="2" ${Number(r?.hotel_stay_days||1)===2?'selected':''}>2 dni</option></select></label><label>Rozliczenie hotelu<select name="hotel_payment_status"><option value="nierozliczone" ${(r?.hotel_payment_status||'nierozliczone')==='nierozliczone'?'selected':''}>Nierozliczone</option><option value="rozliczone" ${r?.hotel_payment_status==='rozliczone'?'selected':''}>Rozliczone</option><option value="na_miejscu" ${r?.hotel_payment_status==='na_miejscu'?'selected':''}>Na miejscu</option></select></label><label>Hotel — nazwa<input name="hotel_name" value="${attr(r?.hotel_name||'')}"></label><label class="full">Hotel — adres<input name="hotel_address" value="${attr(r?.hotel_address||'')}"></label><label>Pokoje<input name="hotel_rooms" value="${attr(r?.hotel_rooms||'')}" placeholder="np. 2×2 + 1×1"></label><label>Cena hotelu<input type="number" min="0" step="0.01" name="hotel_price" value="${attr(r?.hotel_price||'')}"></label><label class="full">Link do hotelu / rezerwacji<input type="url" name="hotel_url" value="${attr(r?.hotel_url||'')}"></label><label class="full">Notatka hotelowa<textarea name="hotel_notes">${esc(r?.hotel_notes||'')}</textarea></label><label class="full">Notatki o wyścigu<textarea name="race_notes">${esc(r?.race_notes||'')}</textarea></label><label class="full">Notatki transportowe<textarea name="transport_notes">${esc(r?.transport_notes||'')}</textarea></label>
     </div></div><div class="modal-footer">${editing?'<button type="button" class="btn btn-danger" id="deleteRace">Usuń wyścig</button>':''}<button type="button" class="btn" data-close-modal>Anuluj</button><button class="btn btn-primary">${editing?'Zapisz zmiany':'Dodaj wyścig'}</button></div></form></div>`);
-  el.querySelector('#raceForm').addEventListener('submit',async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));const row={team_id:state.team.id,name:f.name,race_date:f.race_date,start_time:f.start_time||null,city:f.city||null,category:f.category||null,race_address:f.race_address||null,registration_url:f.registration_url||null,status:f.status,hotel_status:f.hotel_status,hotel_name:f.hotel_name||null,hotel_address:f.hotel_address||null,hotel_rooms:f.hotel_rooms||null,hotel_price:f.hotel_price?Number(f.hotel_price):null,hotel_url:f.hotel_url||null,hotel_notes:f.hotel_notes||null,race_notes:f.race_notes||null,transport_notes:f.transport_notes||null};try{if(editing)await saveRaceEdit(r.id,row);else await createRace(row);el.remove();render();toast(editing?'Zapisano zmiany':'Dodano wyścig');}catch(x){toast(x.message,true)}});
+  el.querySelector('#raceForm').addEventListener('submit',async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));const row={team_id:state.team.id,name:f.name,race_date:f.race_date,start_time:f.start_time||null,city:f.city||null,category:f.category||null,race_address:f.race_address||null,registration_url:f.registration_url||null,status:f.status,hotel_status:f.hotel_status,hotel_stay_days:Number(f.hotel_stay_days||1),hotel_payment_status:f.hotel_payment_status||'nierozliczone',hotel_name:f.hotel_name||null,hotel_address:f.hotel_address||null,hotel_rooms:f.hotel_rooms||null,hotel_price:f.hotel_price?Number(f.hotel_price):null,hotel_url:f.hotel_url||null,hotel_notes:f.hotel_notes||null,race_notes:f.race_notes||null,transport_notes:f.transport_notes||null};try{if(editing)await saveRaceEdit(r.id,row);else await createRace(row);el.remove();render();toast(editing?'Zapisano zmiany':'Dodano wyścig');}catch(x){toast(x.message,true)}});
   el.querySelector('#deleteRace')?.addEventListener('click',async()=>{if(!confirm('Usunąć cały wyścig razem z kosztami, zadaniami i składem?'))return;try{await deleteRace(r.id);el.remove();state.view='races';state.selectedRaceId=null;render();toast('Wyścig usunięty')}catch(x){toast(x.message,true)}});
 }
 
@@ -390,7 +487,7 @@ async function createRace(row){
   const {data,error}=await supabase.from('races').insert({...row,created_by:state.user.id}).select().single();if(error)throw error;await Promise.all(state.members.map(m=>supabase.from('race_participants').insert({race_id:data.id,user_id:m.user_id,status:'nieustalone'})));await loadRealData();
 }
 async function saveRaceEdit(id,row){if(state.demo){const i=state.races.findIndex(x=>x.id===id);state.races[i]={...state.races[i],...row};saveDemo();return;}const {error}=await supabase.from('races').update(row).eq('id',id);if(error)throw error;await loadRealData();}
-async function deleteRace(id){if(state.demo){state.races=state.races.filter(x=>x.id!==id);state.participants=state.participants.filter(x=>x.race_id!==id);state.tasks=state.tasks.filter(x=>x.race_id!==id);const exIds=new Set(state.expenses.filter(x=>x.race_id===id).map(x=>x.id));state.expenses=state.expenses.filter(x=>x.race_id!==id);state.shares=state.shares.filter(x=>!exIds.has(x.expense_id));state.vehicles=state.vehicles.filter(x=>x.race_id!==id);state.packing=state.packing.filter(x=>x.race_id!==id);saveDemo();return;}const {error}=await supabase.from('races').delete().eq('id',id);if(error)throw error;await loadRealData();}
+async function deleteRace(id){if(state.demo){state.races=state.races.filter(x=>x.id!==id);state.participants=state.participants.filter(x=>x.race_id!==id);state.tasks=state.tasks.filter(x=>x.race_id!==id);const exIds=new Set(state.expenses.filter(x=>x.race_id===id).map(x=>x.id));state.expenses=state.expenses.filter(x=>x.race_id!==id);state.shares=state.shares.filter(x=>!exIds.has(x.expense_id));state.vehicles=state.vehicles.filter(x=>x.race_id!==id);state.packing=state.packing.filter(x=>x.race_id!==id);state.results=state.results.filter(x=>x.race_id!==id);state.prizes=state.prizes.map(x=>x.race_id===id?{...x,race_id:null}:x);saveDemo();return;}const {error}=await supabase.from('races').delete().eq('id',id);if(error)throw error;await loadRealData();}
 async function upsertParticipant(rid,userId,status){
   if(state.demo){let p=state.participants.find(x=>x.race_id===rid&&x.user_id===userId);if(p)p.status=status;else state.participants.push({id:uid(),race_id:rid,user_id:userId,status});saveDemo();render();return;}
   const {error}=await supabase.from('race_participants').upsert({race_id:rid,user_id:userId,status},{onConflict:'race_id,user_id'});if(error)toast(error.message,true);else await loadRealData();render();
@@ -408,8 +505,8 @@ async function submitVehicle(e,r){e.preventDefault();const f=Object.fromEntries(
 async function submitPacking(e,r){e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));const row={id:uid(),race_id:r.id,name:f.name,owner_id:f.owner_id||null,qty:Number(f.qty||1),done:false};if(state.demo){state.packing.push(row);saveDemo();render();return;}const {id,...db}=row;const {error}=await supabase.from('packing_items').insert(db);if(error)toast(error.message,true);else{await loadRealData();render();}}
 async function submitExpense(e,r){
   e.preventDefault();const fd=new FormData(e.currentTarget);const users=fd.getAll('share_user');if(!users.length){toast('Zaznacz co najmniej jedną osobę',true);return;}const amount=Number(fd.get('amount'));const per=Math.round((amount/users.length)*100)/100;const row={race_id:r.id,payer_id:fd.get('payer_id'),description:fd.get('description'),category:fd.get('category'),amount,paid_at:isoDate(new Date())};
-  if(state.demo){const id=uid();state.expenses.push({id,...row});let remaining=amount;users.forEach((u,i)=>{const share=i===users.length-1?Math.round(remaining*100)/100:per;remaining-=share;state.shares.push({id:uid(),expense_id:id,user_id:u,share_amount:share})});saveDemo();render();return;}
-  const {data,error}=await supabase.from('expenses').insert(row).select().single();if(error){toast(error.message,true);return;}let remaining=amount;const shares=users.map((u,i)=>{const share=i===users.length-1?Math.round(remaining*100)/100:per;remaining-=share;return{expense_id:data.id,user_id:u,share_amount:share}});const {error:se}=await supabase.from('expense_shares').insert(shares);if(se)toast(se.message,true);await loadRealData();render();
+  if(state.demo){const id=uid();state.expenses.push({id,...row});let remaining=amount;users.forEach((u,i)=>{const share=i===users.length-1?Math.round(remaining*100)/100:per;remaining-=share;state.shares.push({id:uid(),expense_id:id,user_id:u,share_amount:share,settlement_status:u===row.payer_id?'rozliczone':'nierozliczone'})});saveDemo();render();return;}
+  const {data,error}=await supabase.from('expenses').insert(row).select().single();if(error){toast(error.message,true);return;}let remaining=amount;const shares=users.map((u,i)=>{const share=i===users.length-1?Math.round(remaining*100)/100:per;remaining-=share;return{expense_id:data.id,user_id:u,share_amount:share,settlement_status:u===row.payer_id?'rozliczone':'nierozliczone'}});const {error:se}=await supabase.from('expense_shares').insert(shares);if(se)toast(se.message,true);await loadRealData();render();
 }
 async function deleteExpense(id){if(state.demo){state.expenses=state.expenses.filter(x=>x.id!==id);state.shares=state.shares.filter(x=>x.expense_id!==id);saveDemo();render();return;}const {error}=await supabase.from('expenses').delete().eq('id',id);if(error)toast(error.message,true);else{await loadRealData();render();}}
 
