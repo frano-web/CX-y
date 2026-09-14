@@ -42,3 +42,11 @@ input,select,textarea{width:100%;border:1px solid var(--line);background:#0a1625
 }
 .cal-event-group{margin-bottom:5px}.cal-event-group .cal-event{margin-bottom:2px}.cal-results-link{border:0;background:transparent;color:var(--accent2);font-size:9px;font-weight:800;padding:1px 3px;display:block}
 @media(max-width:760px){.cal-results-link{font-size:8px}.cal-event-group{margin-bottom:3px}}
+
+
+/* V4 — hotel przed wyścigiem */
+.cal-hotel-event{display:block;width:100%;border:0;text-align:left;padding:5px 7px;border-radius:8px;background:#25301f;color:#dff7d8;border-left:3px solid var(--accent);font-size:9px;font-weight:800;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.cal-hotel-event.searching{background:#302819;color:#ffe2a3;border-left-color:var(--warn)}
+.cal-hotel-note{font-size:8px;color:var(--muted);font-weight:800;padding:0 3px 2px}
+.hotel-arrival-summary{margin:9px 0;color:var(--accent2);font-size:12px}
+@media(max-width:760px){.cal-hotel-event{font-size:8px;padding:4px 5px}.cal-hotel-note{font-size:7px}}
