@@ -16,7 +16,8 @@ const MONTH = new Intl.DateTimeFormat('pl-PL',{month:'long',year:'numeric'});
 const state = {
   user: null, team: null, members: [], races: [], participants: [], tasks: [], expenses: [], shares: [], vehicles: [], packing: [], results: [], privateNotes: [], prizes: [], activity: [], activityReadAt: null,
   view: 'dashboard', selectedRaceId: null, detailTab: 'overview', search: '', raceFilter: 'nadchodzace',
-  taskFilter: 'open', taskMemberFilter: 'all', calDate: new Date(), loading: true, authMode: 'signin', realtime: null, demo: !configured
+  taskFilter: 'open', taskMemberFilter: 'all', calDate: new Date(), loading: true, authMode: 'signin', realtime: null, demo: !configured,
+  pushSupported: ('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window), pushPermission: ('Notification' in window ? Notification.permission : 'unsupported'), pushSubscribed: false, pushBusy: false
 };
 
 function uid(){ return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)+Date.now(); }
@@ -30,6 +31,55 @@ function memberName(id){ return state.members.find(m=>m.user_id===id)?.display_n
 function activityActorName(a){ return a.actor_name || memberName(a.actor_id) || 'Ktoś'; }
 function activityUnreadCount(){ if(!state.activityReadAt)return 0; const seen=new Date(state.activityReadAt).getTime(); return state.activity.filter(a=>a.actor_id!==state.user?.id && new Date(a.created_at).getTime()>seen).length; }
 function fmtActivityTime(v){ if(!v)return ''; const d=new Date(v), now=new Date(), diff=Math.round((d-now)/60000); if(Math.abs(diff)<1)return 'przed chwilą'; if(Math.abs(diff)<60)return `${Math.abs(diff)} min temu`; const h=Math.round(Math.abs(diff)/60); if(h<24)return `${h} godz. temu`; if(h<48)return 'wczoraj'; return d.toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+
+function isIos(){ return /iphone|ipad|ipod/i.test(navigator.userAgent); }
+function isStandalone(){ return window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true; }
+function urlBase64ToUint8Array(base64String){
+  const padding='='.repeat((4-base64String.length%4)%4); const base64=(base64String+padding).replace(/-/g,'+').replace(/_/g,'/');
+  const rawData=atob(base64); return Uint8Array.from([...rawData].map(c=>c.charCodeAt(0)));
+}
+async function refreshPushState(sync=false){
+  state.pushSupported=('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && Boolean(CFG.vapidPublicKey));
+  state.pushPermission=('Notification' in window ? Notification.permission : 'unsupported');
+  if(!state.pushSupported){ state.pushSubscribed=false; return; }
+  try{
+    const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription(); state.pushSubscribed=Boolean(sub);
+    if(sync && sub && state.user && state.team && !state.demo) await savePushSubscription(sub);
+  }catch(e){ console.warn('Push state',e); state.pushSubscribed=false; }
+}
+async function savePushSubscription(sub){
+  const j=sub.toJSON(); const row={team_id:state.team.id,user_id:state.user.id,endpoint:j.endpoint,p256dh:j.keys?.p256dh,auth:j.keys?.auth,user_agent:navigator.userAgent,updated_at:new Date().toISOString()};
+  const {error}=await supabase.from('push_subscriptions').upsert(row,{onConflict:'endpoint'}); if(error)throw error;
+}
+async function enablePush(){
+  if(state.demo){ toast('Powiadomienia push działają po podłączeniu Supabase',true); return; }
+  if(isIos()&&!isStandalone()){ toast('Na iPhonie najpierw: Udostępnij → Dodaj do ekranu początkowego',true); return; }
+  if(!state.pushSupported){ toast('Ta przeglądarka nie obsługuje powiadomień push albo brakuje klucza VAPID',true); return; }
+  if(state.pushBusy)return; state.pushBusy=true;
+  try{
+    const permission=await Notification.requestPermission(); state.pushPermission=permission;
+    if(permission!=='granted'){ toast('Powiadomienia nie zostały włączone',true); return; }
+    const reg=await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(CFG.vapidPublicKey)});
+    await savePushSubscription(sub); state.pushSubscribed=true; toast('Powiadomienia push są włączone ✓'); render();
+  }catch(e){ console.error(e); toast('Nie udało się włączyć powiadomień: '+(e.message||e),true); }
+  finally{state.pushBusy=false;}
+}
+async function disablePush(){
+  if(!state.pushSupported)return;
+  try{
+    const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription();
+    if(sub){ const endpoint=sub.endpoint; if(!state.demo&&state.user) await supabase.from('push_subscriptions').delete().eq('endpoint',endpoint).eq('user_id',state.user.id); await sub.unsubscribe(); }
+    state.pushSubscribed=false; toast('Powiadomienia wyłączone'); render();
+  }catch(e){console.error(e);toast('Nie udało się wyłączyć powiadomień',true)}
+}
+function pushStatusUi(){
+  if(isIos()&&!isStandalone()) return `<div class="push-box warn-box"><div class="push-symbol">📲</div><div class="grow"><b>Powiadomienia na iPhonie</b><div class="row-sub">Otwórz stronę w Safari → Udostępnij → Dodaj do ekranu początkowego. Potem uruchom CX Trip z ikony i kliknij „Włącz”.</div></div><span class="badge warn">wymaga instalacji</span></div>`;
+  if(!state.pushSupported) return `<div class="push-box"><div class="push-symbol">🔕</div><div class="grow"><b>Powiadomienia systemowe niedostępne</b><div class="row-sub">Sprawdź obsługę Web Push i konfigurację klucza VAPID.</div></div></div>`;
+  if(state.pushPermission==='denied') return `<div class="push-box danger-box"><div class="push-symbol">🔕</div><div class="grow"><b>Powiadomienia zablokowane</b><div class="row-sub">Włącz je ręcznie w ustawieniach powiadomień przeglądarki / CX Trip.</div></div><span class="badge danger">zablokowane</span></div>`;
+  return `<div class="push-box ${state.pushSubscribed?'enabled':''}"><div class="push-symbol">${state.pushSubscribed?'🔔':'🔕'}</div><div class="grow"><b>Banery systemowe</b><div class="row-sub">${state.pushSubscribed?'Włączone na tym urządzeniu. Zmiany innych osób mogą pojawić się na ekranie blokady i w centrum powiadomień.':'Włącz, aby dostawać banery, gdy ktoś zmieni hotel, skład, zadania, koszty, wyniki lub inne wspólne dane.'}</div></div><button class="btn ${state.pushSubscribed?'btn-ghost':'btn-primary'}" data-push-toggle>${state.pushSubscribed?'Wyłącz':'Włącz powiadomienia'}</button></div>`;
+}
 
 function memberInitials(id){ return memberName(id).split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase(); }
 function selectedRace(){ return state.races.find(r=>r.id===state.selectedRaceId); }
@@ -165,7 +215,8 @@ async function init(){
   if(state.demo){ seedDemo(); state.loading=false; render(); return; }
   const {data:{session}}=await supabase.auth.getSession(); state.user=session?.user||null;
   supabase.auth.onAuthStateChange((_evt,session)=>{ state.user=session?.user||null; if(!state.user){ Object.assign(state,{team:null,members:[],races:[]}); render(); }});
-  if(state.user){ try{ await loadRealData(); subscribeRealtime(); }catch(e){ console.error(e); toast('Nie udało się pobrać danych',true); } }
+  if(state.user){ try{ await loadRealData(); subscribeRealtime(); await refreshPushState(true); }catch(e){ console.error(e); toast('Nie udało się pobrać danych',true); } }
+  else { await refreshPushState(false); }
   state.loading=false; render();
 }
 
@@ -179,7 +230,7 @@ function appShell(content,title){
     </aside>
     <main class="main"><header class="topbar"><h1>${esc(title)}</h1><div class="top-actions">
       ${state.view==='tasks' ? '<button class="btn btn-primary hide-mobile" data-add-team-task>+ Dodaj zadanie</button>' : state.view==='results' ? '<button class="btn btn-primary hide-mobile" data-add-result>+ Dodaj wynik</button>' : state.view==='notes' ? '<button class="btn btn-primary hide-mobile" data-add-note>+ Notatka</button>' : (state.view!=='race' ? '<button class="btn btn-primary hide-mobile" data-add-race>+ Dodaj wyścig</button>':'')}
-      <div class="user-pill"><div class="avatar">${esc(memberInitials(state.user.id))}</div><span>${esc(memberName(state.user.id))}</span></div>
+      ${state.pushSupported?`<button class="btn btn-sm push-top ${state.pushSubscribed?'push-on':''}" data-push-toggle title="${state.pushSubscribed?'Powiadomienia push włączone':'Włącz powiadomienia push'}">${state.pushSubscribed?'🔔 ✓':'🔕 Włącz'}</button>`:''}<div class="user-pill"><div class="avatar">${esc(memberInitials(state.user.id))}</div><span>${esc(memberName(state.user.id))}</span></div>
     </div></header><div class="content">${content}</div></main>
     <nav class="mobile-nav">${mobileNavButton('dashboard','⌂','Pulpit')}${mobileNavButton('calendar','▦','Kalendarz')}${mobileNavButton('races','🏁','Wyścigi')}${mobileNavButton('tasks','✓','Zadania')}${mobileNavButton('results','★','Wyniki')}${mobileNavButton('costs','₿','Koszty')}${mobileNavButton('activity','🔔','Aktywność',activityUnreadCount())}${mobileNavButton('notes','✎','Notatki')}${mobileNavButton('team','♟','Ekipa')}</nav>
     ${state.view==='tasks'?'<button class="fab" data-add-team-task aria-label="Dodaj zadanie">+</button>':state.view==='results'?'<button class="fab" data-add-result aria-label="Dodaj wynik">+</button>':state.view==='notes'?'<button class="fab" data-add-note aria-label="Dodaj notatkę">+</button>':(state.view!=='race'?'<button class="fab" data-add-race aria-label="Dodaj wyścig">+</button>':'')}
@@ -216,7 +267,7 @@ function renderAuth(){
     e.preventDefault(); const f=new FormData(e.currentTarget); const email=f.get('email'),password=f.get('password');
     try{
       if(signup){ const {data,error}=await supabase.auth.signUp({email,password,options:{data:{display_name:f.get('name')}}}); if(error)throw error; if(data.session){ state.user=data.user; } else { state.user=null; state.authMode='signin'; } toast(data.session?'Konto utworzone':'Sprawdź e-mail i potwierdź konto, a potem się zaloguj'); }
-      else { const {data,error}=await supabase.auth.signInWithPassword({email,password}); if(error)throw error; state.user=data.user; await loadRealData(); subscribeRealtime(); }
+      else { const {data,error}=await supabase.auth.signInWithPassword({email,password}); if(error)throw error; state.user=data.user; await loadRealData(); subscribeRealtime(); await refreshPushState(true); }
       render();
     }catch(err){ toast(err.message||'Błąd logowania',true); }
   });
@@ -228,8 +279,8 @@ function renderOnboarding(){
     <div class="onboard-option"><h3>Dołącz kodem</h3><p>Wpisz 6-znakowy kod otrzymany od kolegi.</p><form id="joinTeam"><label>Kod ekipy<input name="code" required maxlength="6" style="text-transform:uppercase" placeholder="ABC123"></label><button class="btn" style="margin-top:12px;width:100%">Dołącz</button></form></div></div>
     <div style="text-align:center;margin-top:18px"><button class="link-btn" id="logoutOnboard">Wyloguj</button></div>
   </div></div>`;
-  document.querySelector('#createTeam').addEventListener('submit',async e=>{e.preventDefault();const name=new FormData(e.currentTarget).get('name');try{const {error}=await supabase.rpc('create_team',{team_name:name});if(error)throw error;await loadRealData();subscribeRealtime();render();}catch(x){toast(x.message,true)}});
-  document.querySelector('#joinTeam').addEventListener('submit',async e=>{e.preventDefault();const code=new FormData(e.currentTarget).get('code');try{const {error}=await supabase.rpc('join_team',{code});if(error)throw error;await loadRealData();subscribeRealtime();render();}catch(x){toast(x.message,true)}});
+  document.querySelector('#createTeam').addEventListener('submit',async e=>{e.preventDefault();const name=new FormData(e.currentTarget).get('name');try{const {error}=await supabase.rpc('create_team',{team_name:name});if(error)throw error;await loadRealData();subscribeRealtime();await refreshPushState(true);render();}catch(x){toast(x.message,true)}});
+  document.querySelector('#joinTeam').addEventListener('submit',async e=>{e.preventDefault();const code=new FormData(e.currentTarget).get('code');try{const {error}=await supabase.rpc('join_team',{code});if(error)throw error;await loadRealData();subscribeRealtime();await refreshPushState(true);render();}catch(x){toast(x.message,true)}});
   document.querySelector('#logoutOnboard').addEventListener('click',()=>supabase.auth.signOut());
 }
 
@@ -389,7 +440,7 @@ function activityIcon(a){ return ({races:'🏁',race_participants:'👥',tasks:'
 function activityView(){
   const rows=[...state.activity].sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
   const unseenAt=state.activityReadAt?new Date(state.activityReadAt).getTime():0;
-  return `<section class="card activity-card"><div class="card-header"><div><h2>🔔 Co się zmieniło</h2><div class="muted small">Wspólna historia zmian całej ekipy. Prywatne notatki i prywatne nagrody nie są tutaj rejestrowane.</div></div><span class="badge info">${rows.length} wpisów</span></div><div class="activity-list">${rows.length?rows.map(a=>{const unread=a.actor_id!==state.user.id&&new Date(a.created_at).getTime()>unseenAt;return `<div class="activity-row ${unread?'unread':''}"><div class="activity-icon">${activityIcon(a)}</div><div class="grow"><div class="activity-message">${activityMessage(a)}</div><div class="activity-meta">${fmtActivityTime(a.created_at)}${a.race_id&&state.races.some(r=>r.id===a.race_id)?` • <button class="link-btn" data-activity-race="${a.race_id}">Otwórz wyścig</button>`:''}</div></div>${unread?'<span class="activity-dot" title="Nowe"></span>':''}</div>`}).join(''):'<div class="empty"><div class="big">🔔</div>Nie ma jeszcze zapisanych zmian. Nowe wpisy pojawią się tutaj automatycznie.</div>'}</div></section>`;
+  return `<div class="stack push-settings">${pushStatusUi()}</div><section class="card activity-card"><div class="card-header"><div><h2>🔔 Co się zmieniło</h2><div class="muted small">Wspólna historia zmian całej ekipy. Prywatne notatki i prywatne nagrody nie są tutaj rejestrowane.</div></div><span class="badge info">${rows.length} wpisów</span></div><div class="activity-list">${rows.length?rows.map(a=>{const unread=a.actor_id!==state.user.id&&new Date(a.created_at).getTime()>unseenAt;return `<div class="activity-row ${unread?'unread':''}"><div class="activity-icon">${activityIcon(a)}</div><div class="grow"><div class="activity-message">${activityMessage(a)}</div><div class="activity-meta">${fmtActivityTime(a.created_at)}${a.race_id&&state.races.some(r=>r.id===a.race_id)?` • <button class="link-btn" data-activity-race="${a.race_id}">Otwórz wyścig</button>`:''}</div></div>${unread?'<span class="activity-dot" title="Nowe"></span>':''}</div>`}).join(''):'<div class="empty"><div class="big">🔔</div>Nie ma jeszcze zapisanych zmian. Nowe wpisy pojawią się tutaj automatycznie.</div>'}</div></section>`;
 }
 async function markActivityRead(){
   if(state.view!=='activity'||!state.team||!state.user)return;
@@ -502,8 +553,9 @@ function bindGlobal(){
   document.querySelector('#calPrev')?.addEventListener('click',()=>{state.calDate=new Date(state.calDate.getFullYear(),state.calDate.getMonth()-1,1);render()});
   document.querySelector('#calNext')?.addEventListener('click',()=>{state.calDate=new Date(state.calDate.getFullYear(),state.calDate.getMonth()+1,1);render()});
   document.querySelector('#copyInvite')?.addEventListener('click',async()=>{await navigator.clipboard.writeText(state.team.invite_code);toast('Kod skopiowany')});
-  document.querySelector('#logoutBtn')?.addEventListener('click',async()=>{if(state.demo){toast('W trybie demo wylogowanie jest wyłączone');return;}await supabase.auth.signOut()});
+  document.querySelector('#logoutBtn')?.addEventListener('click',async()=>{if(state.demo){toast('W trybie demo wylogowanie jest wyłączone');return;}if(state.pushSubscribed)await disablePush();await supabase.auth.signOut()});
   document.querySelector('#exportCsv')?.addEventListener('click',exportCsv);
+  document.querySelectorAll('[data-push-toggle]').forEach(b=>b.addEventListener('click',()=>state.pushSubscribed?disablePush():enablePush()));
   document.querySelectorAll('[data-activity-race]').forEach(b=>b.addEventListener('click',()=>{state.selectedRaceId=b.dataset.activityRace;state.view='race';state.detailTab='overview';render()}));
   if(state.view==='activity')markActivityRead();
   if(state.view==='race')bindRaceDetail();
