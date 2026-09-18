@@ -64,3 +64,29 @@ input,select,textarea{width:100%;border:1px solid var(--line);background:#0a1625
 
 /* V8 — ustawienia push wewnątrz Aktywności */
 .notification-settings-card{margin-bottom:16px}.notification-settings-card .push-settings{margin:0}.notification-settings-card .push-box{background:rgba(8,17,31,.52)}
+
+
+/* V13 — iPhone PWA: bezpieczny górny margines + poprawiona ikona */
+@supports (padding: max(0px)) {
+  body { min-height: 100dvh; }
+}
+@media(max-width:760px){
+  .topbar{
+    height:calc(64px + env(safe-area-inset-top));
+    min-height:calc(64px + env(safe-area-inset-top));
+    padding-top:env(safe-area-inset-top);
+    padding-left:max(15px, env(safe-area-inset-left));
+    padding-right:max(15px, env(safe-area-inset-right));
+  }
+  .auth-wrap{
+    padding-top:max(18px, calc(env(safe-area-inset-top) + 12px));
+    padding-left:max(14px, env(safe-area-inset-left));
+    padding-right:max(14px, env(safe-area-inset-right));
+    padding-bottom:max(18px, env(safe-area-inset-bottom));
+  }
+  .modal-backdrop{
+    padding-top:max(18px, calc(env(safe-area-inset-top) + 10px));
+    padding-bottom:max(18px, env(safe-area-inset-bottom));
+  }
+  .notification-bell{margin-top:0;}
+}

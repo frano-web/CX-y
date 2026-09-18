@@ -222,7 +222,7 @@ async function init(){
 
   // PWA/push nie może nigdy blokować wejścia do aplikacji — szczególnie na iOS.
   if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('./sw.js?v=12',{updateViaCache:'none'}).catch(e=>console.warn('SW register',e));
+    navigator.serviceWorker.register('./sw.js?v=13',{updateViaCache:'none'}).catch(e=>console.warn('SW register',e));
   }
   if(state.demo){ seedDemo(); state.loading=false; window.__cxBootOk=true; render(); return; }
 

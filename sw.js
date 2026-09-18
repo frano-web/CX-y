@@ -1,3 +1,4 @@
+const APP_VERSION = 'v13';
 const CACHE_PREFIX = 'cx-trip-';
 
 self.addEventListener('install', event => {
