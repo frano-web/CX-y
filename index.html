@@ -12,9 +12,18 @@
   <title>CX Trip</title>
 </head>
 <body>
-  <div id="app"></div>
+  <div id="app"><div class="auth-wrap"><div class="auth-card"><div class="auth-brand"><div class="brand-mark">CX</div><h1>Ładowanie…</h1><p>Uruchamianie CX Trip</p></div></div></div></div>
   <div id="toast" class="toast" aria-live="polite"></div>
   <script src="./config.js"></script>
+  <script>
+    window.__cxBootOk = false;
+    setTimeout(function(){
+      if(!window.__cxBootOk){
+        var el=document.getElementById('app');
+        if(el) el.innerHTML='<div class="auth-wrap"><div class="auth-card"><div class="auth-brand"><div class="brand-mark">CX</div><h1>Nie udało się uruchomić</h1><p>Najczęściej pomaga zamknięcie aplikacji i ponowne otwarcie. Jeśli problem wraca, usuń ikonę CX Trip z ekranu początkowego i dodaj ją ponownie po aktualizacji.</p></div><button class="btn btn-primary" style="width:100%" onclick="location.reload()">Spróbuj ponownie</button></div></div>';
+      }
+    },18000);
+  </script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>

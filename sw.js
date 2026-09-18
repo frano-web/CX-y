@@ -1,4 +1,4 @@
-const CACHE = 'cx-trip-v8-activity-push';
+const CACHE = 'cx-trip-v9-ios-startup-fix';
 const APP_SHELL = ['./','./index.html','./styles.css','./app.js','./config.js','./manifest.webmanifest','./icons/icon.svg','./icons/icon-192.png','./icons/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -11,9 +11,25 @@ self.addEventListener('activate', e => e.waitUntil(Promise.all([
 ])));
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+
+  // Nie przechwytujemy bibliotek/CDN ani API Supabase. Błąd sieci nie może zwrócić HTML jako JavaScript/JSON.
+  if (url.origin !== self.location.origin) return;
+
+  // Dla wejścia do PWA: sieć -> cache strony głównej.
+  if (e.request.mode === 'navigate') {
+    e.respondWith(fetch(e.request).then(r => {
+      if (r && r.ok) caches.open(CACHE).then(c => c.put('./index.html', r.clone())).catch(()=>{});
+      return r;
+    }).catch(async () => (await caches.match('./index.html')) || (await caches.match('./'))));
+    return;
+  }
+
+  // Dla lokalnych assetów: sieć -> dokładny plik z cache. Bez fallbacku index.html dla JS/CSS.
   e.respondWith(fetch(e.request).then(r => {
-    const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); return r;
-  }).catch(() => caches.match(e.request).then(r => r || caches.match('./index.html'))));
+    if (r && r.ok) caches.open(CACHE).then(c => c.put(e.request, r.clone())).catch(()=>{});
+    return r;
+  }).catch(() => caches.match(e.request)));
 });
 
 self.addEventListener('push', event => {

@@ -32,6 +32,12 @@ function activityActorName(a){ return a.actor_name || memberName(a.actor_id) || 
 function activityUnreadCount(){ if(!state.activityReadAt)return 0; const seen=new Date(state.activityReadAt).getTime(); return state.activity.filter(a=>a.actor_id!==state.user?.id && new Date(a.created_at).getTime()>seen).length; }
 function fmtActivityTime(v){ if(!v)return ''; const d=new Date(v), now=new Date(), diff=Math.round((d-now)/60000); if(Math.abs(diff)<1)return 'przed chwilą'; if(Math.abs(diff)<60)return `${Math.abs(diff)} min temu`; const h=Math.round(Math.abs(diff)/60); if(h<24)return `${h} godz. temu`; if(h<48)return 'wczoraj'; return d.toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
 
+function withTimeout(promise, ms, label='Operacja'){
+  let timer;
+  const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(label+' przekroczyła limit czasu')),ms)});
+  return Promise.race([promise,timeout]).finally(()=>clearTimeout(timer));
+}
+
 function isIos(){ return /iphone|ipad|ipod/i.test(navigator.userAgent); }
 function isStandalone(){ return window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true; }
 function urlBase64ToUint8Array(base64String){
@@ -43,7 +49,7 @@ async function refreshPushState(sync=false){
   state.pushPermission=('Notification' in window ? Notification.permission : 'unsupported');
   if(!state.pushSupported){ state.pushSubscribed=false; return; }
   try{
-    const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription(); state.pushSubscribed=Boolean(sub);
+    const reg=await withTimeout(navigator.serviceWorker.ready,5000,'Service Worker'); const sub=await reg.pushManager.getSubscription(); state.pushSubscribed=Boolean(sub);
     if(sync && sub && state.user && state.team && !state.demo) await savePushSubscription(sub);
   }catch(e){ console.warn('Push state',e); state.pushSubscribed=false; }
 }
@@ -59,7 +65,7 @@ async function enablePush(){
   try{
     const permission=await Notification.requestPermission(); state.pushPermission=permission;
     if(permission!=='granted'){ toast('Powiadomienia nie zostały włączone',true); return; }
-    const reg=await navigator.serviceWorker.ready;
+    const reg=await withTimeout(navigator.serviceWorker.ready,8000,'Service Worker');
     let sub=await reg.pushManager.getSubscription();
     if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(CFG.vapidPublicKey)});
     await savePushSubscription(sub); state.pushSubscribed=true; toast('Powiadomienia push są włączone ✓'); render();
@@ -69,7 +75,7 @@ async function enablePush(){
 async function disablePush(){
   if(!state.pushSupported)return;
   try{
-    const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription();
+    const reg=await withTimeout(navigator.serviceWorker.ready,8000,'Service Worker'); const sub=await reg.pushManager.getSubscription();
     if(sub){ const endpoint=sub.endpoint; if(!state.demo&&state.user) await supabase.from('push_subscriptions').delete().eq('endpoint',endpoint).eq('user_id',state.user.id); await sub.unsubscribe(); }
     state.pushSubscribed=false; toast('Powiadomienia wyłączone'); render();
   }catch(e){console.error(e);toast('Nie udało się wyłączyć powiadomień',true)}
@@ -211,13 +217,33 @@ function subscribeRealtime(){
 
 async function init(){
   const hashView=location.hash.replace('#',''); if(['dashboard','calendar','races','tasks','results','costs','activity','notes','team'].includes(hashView)) state.view=hashView;
-  if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
-  if(state.demo){ seedDemo(); state.loading=false; render(); return; }
-  const {data:{session}}=await supabase.auth.getSession(); state.user=session?.user||null;
-  supabase.auth.onAuthStateChange((_evt,session)=>{ state.user=session?.user||null; if(!state.user){ Object.assign(state,{team:null,members:[],races:[]}); render(); }});
-  if(state.user){ try{ await loadRealData(); subscribeRealtime(); await refreshPushState(true); }catch(e){ console.error(e); toast('Nie udało się pobrać danych',true); } }
-  else { await refreshPushState(false); }
-  state.loading=false; render();
+  render();
+
+  // PWA/push nie może nigdy blokować wejścia do aplikacji — szczególnie na iOS.
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).catch(e=>console.warn('SW register',e));
+  }
+  if(state.demo){ seedDemo(); state.loading=false; window.__cxBootOk=true; render(); return; }
+
+  try{
+    const {data:{session}}=await withTimeout(supabase.auth.getSession(),10000,'Logowanie');
+    state.user=session?.user||null;
+    supabase.auth.onAuthStateChange((_evt,session)=>{ state.user=session?.user||null; if(!state.user){ Object.assign(state,{team:null,members:[],races:[]}); render(); }});
+    if(state.user){
+      try{ await withTimeout(loadRealData(),15000,'Pobieranie danych'); subscribeRealtime(); }
+      catch(e){ console.error(e); toast('Nie udało się pobrać danych. Sprawdź internet i spróbuj ponownie.',true); }
+    }
+  }catch(e){
+    console.error('Startup',e);
+    state.user=null;
+    toast('Problem z uruchomieniem. Sprawdź połączenie i uruchom aplikację ponownie.',true);
+  }finally{
+    state.loading=false;
+    window.__cxBootOk=true;
+    render();
+    // Stan push sprawdzamy dopiero po pokazaniu aplikacji i bez oczekiwania na wynik.
+    refreshPushState(Boolean(state.user)).then(()=>render()).catch(e=>console.warn('Push init',e));
+  }
 }
 
 function navButton(view,icon,label,badge=0){ return `<button data-nav="${view}" class="${state.view===view?'active':''}"><span class="icon">${icon}</span><span class="nav-label">${label}</span>${badge?`<span class="nav-count">${badge>99?'99+':badge}</span>`:''}</button>`; }
