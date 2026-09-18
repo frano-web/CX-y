@@ -1,4 +1,4 @@
-const CACHE = 'cx-trip-v4';
+const CACHE = 'cx-trip-v5';
 const APP_SHELL = ['./','./index.html','./styles.css','./app.js','./config.js','./manifest.webmanifest','./icons/icon.svg'];
 self.addEventListener('install', e => {
   self.skipWaiting();

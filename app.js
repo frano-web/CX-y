@@ -14,7 +14,7 @@ const PLN = new Intl.NumberFormat('pl-PL',{style:'currency',currency:'PLN'});
 const DMY = new Intl.DateTimeFormat('pl-PL',{day:'2-digit',month:'2-digit',year:'numeric'});
 const MONTH = new Intl.DateTimeFormat('pl-PL',{month:'long',year:'numeric'});
 const state = {
-  user: null, team: null, members: [], races: [], participants: [], tasks: [], expenses: [], shares: [], vehicles: [], packing: [], results: [], privateNotes: [], prizes: [],
+  user: null, team: null, members: [], races: [], participants: [], tasks: [], expenses: [], shares: [], vehicles: [], packing: [], results: [], privateNotes: [], prizes: [], activity: [], activityReadAt: null,
   view: 'dashboard', selectedRaceId: null, detailTab: 'overview', search: '', raceFilter: 'nadchodzace',
   taskFilter: 'open', taskMemberFilter: 'all', calDate: new Date(), loading: true, authMode: 'signin', realtime: null, demo: !configured
 };
@@ -27,6 +27,10 @@ function dateObj(v){ if(!v)return null; const [y,m,d]=String(v).slice(0,10).spli
 function isoDate(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function fmtDate(v){ const d=dateObj(v); return d?DMY.format(d):'—'; }
 function memberName(id){ return state.members.find(m=>m.user_id===id)?.display_name || 'Nieznany'; }
+function activityActorName(a){ return a.actor_name || memberName(a.actor_id) || 'Ktoś'; }
+function activityUnreadCount(){ if(!state.activityReadAt)return 0; const seen=new Date(state.activityReadAt).getTime(); return state.activity.filter(a=>a.actor_id!==state.user?.id && new Date(a.created_at).getTime()>seen).length; }
+function fmtActivityTime(v){ if(!v)return ''; const d=new Date(v), now=new Date(), diff=Math.round((d-now)/60000); if(Math.abs(diff)<1)return 'przed chwilą'; if(Math.abs(diff)<60)return `${Math.abs(diff)} min temu`; const h=Math.round(Math.abs(diff)/60); if(h<24)return `${h} godz. temu`; if(h<48)return 'wczoraj'; return d.toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+
 function memberInitials(id){ return memberName(id).split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase(); }
 function selectedRace(){ return state.races.find(r=>r.id===state.selectedRaceId); }
 function raceParts(rid){ return state.participants.filter(p=>p.race_id===rid); }
@@ -67,8 +71,8 @@ function taskProgress(rid){ const a=raceTasks(rid); if(!a.length)return 0; retur
 function participantCount(rid){ return raceParts(rid).filter(p=>p.status==='jedzie').length; }
 function upcomingRaces(){ return [...state.races].filter(isUpcoming).sort((a,b)=>String(a.race_date).localeCompare(String(b.race_date))); }
 function totalExpenses(rid=null){ return (rid?raceExpenses(rid):state.expenses).reduce((s,e)=>s+Number(e.amount||0),0); }
-function saveDemo(){ if(state.demo){ localStorage.setItem('cxtrip_demo_v3',JSON.stringify({team:state.team,members:state.members,races:state.races,participants:state.participants,tasks:state.tasks,expenses:state.expenses,shares:state.shares,vehicles:state.vehicles,packing:state.packing,results:state.results,privateNotes:state.privateNotes,prizes:state.prizes})); } }
-function saveSnapshot(){ try{ localStorage.setItem('cxtrip_snapshot',JSON.stringify({team:state.team,members:state.members,races:state.races,participants:state.participants,tasks:state.tasks,expenses:state.expenses,shares:state.shares,vehicles:state.vehicles,packing:state.packing,results:state.results,privateNotes:state.privateNotes,prizes:state.prizes,ts:Date.now()})); }catch{} }
+function saveDemo(){ if(state.demo){ localStorage.setItem('cxtrip_demo_v3',JSON.stringify({team:state.team,members:state.members,races:state.races,participants:state.participants,tasks:state.tasks,expenses:state.expenses,shares:state.shares,vehicles:state.vehicles,packing:state.packing,results:state.results,privateNotes:state.privateNotes,prizes:state.prizes,activity:state.activity,activityReadAt:state.activityReadAt})); } }
+function saveSnapshot(){ try{ localStorage.setItem('cxtrip_snapshot',JSON.stringify({team:state.team,members:state.members,races:state.races,participants:state.participants,tasks:state.tasks,expenses:state.expenses,shares:state.shares,vehicles:state.vehicles,packing:state.packing,results:state.results,privateNotes:state.privateNotes,prizes:state.prizes,activity:state.activity,activityReadAt:state.activityReadAt,ts:Date.now()})); }catch{} }
 
 function seedDemo(){
   const stored=localStorage.getItem('cxtrip_demo_v3')||localStorage.getItem('cxtrip_demo_v2'); if(stored){ Object.assign(state,JSON.parse(stored)); const demoMe=state.members.find(m=>m.display_name==='Dawid')||state.members[0]; state.user={id:demoMe.user_id,email:'demo@cxtrip.local',user_metadata:{display_name:demoMe.display_name}}; return; }
@@ -104,6 +108,12 @@ function seedDemo(){
   state.results=[{id:'res1',race_id:r1,user_id:me,result_text:'3. miejsce',category:'Junior',note:'Dobry start, ciężka końcówka.',created_at:new Date().toISOString()}];
   state.privateNotes=[{id:'pn1',user_id:me,title:'Moje ustawienia roweru',body:'Ciśnienie na błoto: sprawdzić przed startem.',created_at:new Date().toISOString()}];
   state.prizes=[{id:'pr1',user_id:me,race_id:r1,race_name:'Puchar Polski CX — Szczekociny',amount:200,awarded_at:isoDate(d1),note:'Nagroda za podium'}];
+  state.activity=[
+    {id:'ac1',team_id:tid,actor_id:u2,actor_name:'Kuba',entity_type:'races',entity_id:r2,race_id:r2,action:'UPDATE',entity_label:'Bryksy Cross',changed_fields:['hotel_status'],created_at:new Date(Date.now()-12*60000).toISOString(),old_data:{hotel_status:'brak'},new_data:{hotel_status:'szukamy'}},
+    {id:'ac2',team_id:tid,actor_id:u5,actor_name:'Donata',entity_type:'tasks',entity_id:'ta1',race_id:r1,action:'INSERT',entity_label:'Potwierdzić hotel',changed_fields:null,created_at:new Date(Date.now()-38*60000).toISOString(),old_data:null,new_data:{title:'Potwierdzić hotel',assigned_to:me}},
+    {id:'ac3',team_id:tid,actor_id:me,actor_name:'Dawid',entity_type:'race_results',entity_id:'res1',race_id:r1,action:'INSERT',entity_label:'Puchar Polski CX — Szczekociny',changed_fields:null,created_at:new Date(Date.now()-2*3600000).toISOString(),old_data:null,new_data:{user_id:me,result_text:'3. miejsce'}}
+  ];
+  state.activityReadAt=new Date(Date.now()-30*60000).toISOString();
   saveDemo();
 }
 
@@ -130,7 +140,13 @@ async function loadRealData(){
     const expenseIds=expenses.map(x=>x.id); if(expenseIds.length){ const s=await supabase.from('expense_shares').select('*').in('expense_id',expenseIds); shares=s.data||[]; }
   }
   const [pn,pr]=await Promise.all([supabase.from('private_notes').select('*').order('updated_at',{ascending:false}),supabase.from('prize_entries').select('*').order('awarded_at',{ascending:false})]);
-  Object.assign(state,{team,members:members||[],races:races||[],participants,tasks,expenses,shares,vehicles,packing,results,privateNotes:pn.data||[],prizes:pr.data||[]});
+  let activity=[], activityReadAt=state.activityReadAt;
+  const aq=await supabase.from('activity_log').select('*').eq('team_id',teamId).order('created_at',{ascending:false}).limit(250);
+  if(!aq.error) activity=aq.data||[];
+  const ar=await supabase.from('activity_reads').select('last_seen_at').eq('team_id',teamId).eq('user_id',state.user.id).maybeSingle();
+  if(!ar.error && ar.data?.last_seen_at) activityReadAt=ar.data.last_seen_at;
+  else if(!ar.error && !ar.data){ activityReadAt=new Date().toISOString(); await supabase.from('activity_reads').upsert({team_id:teamId,user_id:state.user.id,last_seen_at:activityReadAt},{onConflict:'team_id,user_id'}); }
+  Object.assign(state,{team,members:members||[],races:races||[],participants,tasks,expenses,shares,vehicles,packing,results,privateNotes:pn.data||[],prizes:pr.data||[],activity,activityReadAt});
   saveSnapshot();
 }
 
@@ -144,7 +160,7 @@ function subscribeRealtime(){
 }
 
 async function init(){
-  const hashView=location.hash.replace('#',''); if(['dashboard','calendar','races','tasks','results','costs','notes','team'].includes(hashView)) state.view=hashView;
+  const hashView=location.hash.replace('#',''); if(['dashboard','calendar','races','tasks','results','costs','activity','notes','team'].includes(hashView)) state.view=hashView;
   if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
   if(state.demo){ seedDemo(); state.loading=false; render(); return; }
   const {data:{session}}=await supabase.auth.getSession(); state.user=session?.user||null;
@@ -153,19 +169,19 @@ async function init(){
   state.loading=false; render();
 }
 
-function navButton(view,icon,label){ return `<button data-nav="${view}" class="${state.view===view?'active':''}"><span class="icon">${icon}</span>${label}</button>`; }
-function mobileNavButton(view,icon,label){ return `<button data-nav="${view}" class="${state.view===view?'active':''}"><span class="micon">${icon}</span>${label}</button>`; }
+function navButton(view,icon,label,badge=0){ return `<button data-nav="${view}" class="${state.view===view?'active':''}"><span class="icon">${icon}</span><span class="nav-label">${label}</span>${badge?`<span class="nav-count">${badge>99?'99+':badge}</span>`:''}</button>`; }
+function mobileNavButton(view,icon,label,badge=0){ return `<button data-nav="${view}" class="${state.view===view?'active':''}"><span class="mobile-icon-wrap"><span class="micon">${icon}</span>${badge?`<span class="mobile-count">${badge>99?'99+':badge}</span>`:''}</span>${label}</button>`; }
 function appShell(content,title){
   return `<div class="app-shell">
     <aside class="sidebar"><div class="brand"><div class="brand-mark">CX</div><div><b>CX Trip</b><small>Race manager</small></div></div>
-      <nav class="nav">${navButton('dashboard','⌂','Pulpit')}${navButton('calendar','▦','Kalendarz')}${navButton('races','🏁','Wyścigi')}${navButton('tasks','✓','Zadania')}${navButton('results','★','Wyniki')}${navButton('costs','₿','Koszty')}${navButton('notes','✎','Notatki')}${navButton('team','♟','Ekipa')}</nav>
+      <nav class="nav">${navButton('dashboard','⌂','Pulpit')}${navButton('calendar','▦','Kalendarz')}${navButton('races','🏁','Wyścigi')}${navButton('tasks','✓','Zadania')}${navButton('results','★','Wyniki')}${navButton('costs','₿','Koszty')}${navButton('activity','🔔','Aktywność',activityUnreadCount())}${navButton('notes','✎','Notatki')}${navButton('team','♟','Ekipa')}</nav>
       <div class="sidebar-footer"><div class="team-chip"><strong>${esc(state.team?.name||'')}</strong>Kod ekipy: <b>${esc(state.team?.invite_code||'—')}</b></div></div>
     </aside>
     <main class="main"><header class="topbar"><h1>${esc(title)}</h1><div class="top-actions">
       ${state.view==='tasks' ? '<button class="btn btn-primary hide-mobile" data-add-team-task>+ Dodaj zadanie</button>' : state.view==='results' ? '<button class="btn btn-primary hide-mobile" data-add-result>+ Dodaj wynik</button>' : state.view==='notes' ? '<button class="btn btn-primary hide-mobile" data-add-note>+ Notatka</button>' : (state.view!=='race' ? '<button class="btn btn-primary hide-mobile" data-add-race>+ Dodaj wyścig</button>':'')}
       <div class="user-pill"><div class="avatar">${esc(memberInitials(state.user.id))}</div><span>${esc(memberName(state.user.id))}</span></div>
     </div></header><div class="content">${content}</div></main>
-    <nav class="mobile-nav">${mobileNavButton('dashboard','⌂','Pulpit')}${mobileNavButton('calendar','▦','Kalendarz')}${mobileNavButton('races','🏁','Wyścigi')}${mobileNavButton('tasks','✓','Zadania')}${mobileNavButton('results','★','Wyniki')}${mobileNavButton('costs','₿','Koszty')}${mobileNavButton('notes','✎','Notatki')}${mobileNavButton('team','♟','Ekipa')}</nav>
+    <nav class="mobile-nav">${mobileNavButton('dashboard','⌂','Pulpit')}${mobileNavButton('calendar','▦','Kalendarz')}${mobileNavButton('races','🏁','Wyścigi')}${mobileNavButton('tasks','✓','Zadania')}${mobileNavButton('results','★','Wyniki')}${mobileNavButton('costs','₿','Koszty')}${mobileNavButton('activity','🔔','Aktywność',activityUnreadCount())}${mobileNavButton('notes','✎','Notatki')}${mobileNavButton('team','♟','Ekipa')}</nav>
     ${state.view==='tasks'?'<button class="fab" data-add-team-task aria-label="Dodaj zadanie">+</button>':state.view==='results'?'<button class="fab" data-add-result aria-label="Dodaj wynik">+</button>':state.view==='notes'?'<button class="fab" data-add-note aria-label="Dodaj notatkę">+</button>':(state.view!=='race'?'<button class="fab" data-add-race aria-label="Dodaj wyścig">+</button>':'')}
   </div>`;
 }
@@ -181,6 +197,7 @@ function render(){
   else if(state.view==='tasks'){title='Zadania zespołu';content=teamTasksView();}
   else if(state.view==='results'){title='Wyniki sezonu';content=resultsView();}
   else if(state.view==='costs'){title='Koszty i rozliczenia';content=costsView();}
+  else if(state.view==='activity'){title='Aktywność ekipy';content=activityView();}
   else if(state.view==='notes'){title='Moje prywatne';content=notesView();}
   else if(state.view==='team'){title='Ekipa';content=teamView();}
   else if(state.view==='race'){const r=selectedRace(); if(!r){state.view='races';return render();} title='Szczegóły wyścigu'; content=raceDetailView(r);}
@@ -314,6 +331,74 @@ function detailResults(r){
   const mine=rows.find(x=>x.user_id===state.user.id);
   return `<section class="card"><div class="card-header"><div><h2>Wyniki — ${esc(r.name)}</h2><div class="muted small">Każdy członek wpisuje swój wynik.</div></div><button class="btn btn-primary" data-add-result data-race-id="${r.id}">${mine?'Edytuj mój wynik':'+ Dodaj mój wynik'}</button></div>${rows.length?rows.map(x=>`<div class="person-result"><div class="avatar">${esc(memberInitials(x.user_id))}</div><div class="grow"><div class="row-title">${esc(memberName(x.user_id))}</div><div class="row-sub">${x.category?esc(x.category):'Bez kategorii'}${x.note?' • '+esc(x.note):''}</div></div><div class="result-place">${esc(x.result_text)}</div>${x.user_id===state.user.id?`<button class="btn btn-sm" data-edit-result="${x.id}">Edytuj</button>`:''}</div>`).join(''):'<div class="empty">Nikt jeszcze nie wpisał wyniku.</div>'}</section>`;
 }
+function activityRaceName(a){ return state.races.find(r=>r.id===a.race_id)?.name || a.entity_label || 'wyścig'; }
+function activityChanged(a,key){ return Array.isArray(a.changed_fields) && a.changed_fields.includes(key); }
+function activityMessage(a){
+  const who=esc(activityActorName(a)); const n=a.new_data||{}, o=a.old_data||{}, label=esc(a.entity_label||'');
+  if(a.entity_type==='races'){
+    if(a.action==='INSERT')return `<b>${who}</b> dodał(a) wyścig <strong>${label}</strong>`;
+    if(a.action==='DELETE')return `<b>${who}</b> usunął/usunęła wyścig <strong>${label}</strong>`;
+    const hotelFields=['hotel_status','hotel_name','hotel_address','hotel_rooms','hotel_price','hotel_notes','hotel_stay_days','hotel_payment_status','hotel_arrival_days_before'];
+    if(hotelFields.some(k=>activityChanged(a,k)))return `<b>${who}</b> zmienił(a) informacje o hotelu przy <strong>${label}</strong>`;
+    if(activityChanged(a,'status'))return `<b>${who}</b> zmienił(a) status wyścigu <strong>${label}</strong>`;
+    if(activityChanged(a,'race_date')||activityChanged(a,'start_time'))return `<b>${who}</b> zmienił(a) termin wyścigu <strong>${label}</strong>`;
+    return `<b>${who}</b> zaktualizował(a) wyścig <strong>${label}</strong>`;
+  }
+  if(a.entity_type==='race_participants'){
+    const target=n.user_id||o.user_id; const status=n.status||o.status;
+    return `<b>${who}</b> zmienił(a) skład: <strong>${esc(memberName(target))}</strong>${status?` → ${esc(partStatusLabel(status))}`:''}`;
+  }
+  if(a.entity_type==='tasks'){
+    if(a.action==='INSERT')return `<b>${who}</b> dodał(a) zadanie <strong>${label}</strong>${n.assigned_to?` dla ${esc(memberName(n.assigned_to))}`:''}`;
+    if(a.action==='DELETE')return `<b>${who}</b> usunął/usunęła zadanie <strong>${label}</strong>`;
+    if(activityChanged(a,'done'))return `<b>${who}</b> oznaczył(a) zadanie <strong>${label}</strong> jako ${n.done?'wykonane':'niewykonane'}`;
+    return `<b>${who}</b> zmienił(a) zadanie <strong>${label}</strong>`;
+  }
+  if(a.entity_type==='expenses'){
+    if(a.action==='INSERT')return `<b>${who}</b> dodał(a) koszt <strong>${label}</strong>${n.amount!=null?` — ${PLN.format(Number(n.amount))}`:''}`;
+    if(a.action==='DELETE')return `<b>${who}</b> usunął/usunęła koszt <strong>${label}</strong>`;
+    return `<b>${who}</b> zmienił(a) koszt <strong>${label}</strong>`;
+  }
+  if(a.entity_type==='expense_shares'){
+    const target=n.user_id||o.user_id; const status=n.settlement_status||o.settlement_status;
+    return `<b>${who}</b> zmienił(a) rozliczenie <strong>${esc(memberName(target))}</strong>${status?` → ${esc(settlementLabel(status))}`:''}`;
+  }
+  if(a.entity_type==='race_vehicles'){
+    if(a.action==='INSERT')return `<b>${who}</b> dodał(a) transport <strong>${label}</strong>`;
+    if(a.action==='DELETE')return `<b>${who}</b> usunął/usunęła transport <strong>${label}</strong>`;
+    return `<b>${who}</b> zmienił(a) transport <strong>${label}</strong>`;
+  }
+  if(a.entity_type==='packing_items'){
+    if(a.action==='INSERT')return `<b>${who}</b> dodał(a) rzecz do zabrania: <strong>${label}</strong>`;
+    if(a.action==='DELETE')return `<b>${who}</b> usunął/usunęła z listy: <strong>${label}</strong>`;
+    if(activityChanged(a,'done'))return `<b>${who}</b> ${n.done?'oznaczył(a) jako spakowane':'cofnął/cofnęła spakowanie'}: <strong>${label}</strong>`;
+    return `<b>${who}</b> zmienił(a) pozycję sprzętu <strong>${label}</strong>`;
+  }
+  if(a.entity_type==='race_results'){
+    const target=n.user_id||o.user_id||a.actor_id;
+    if(a.action==='DELETE')return `<b>${who}</b> usunął/usunęła swój wynik z <strong>${esc(activityRaceName(a))}</strong>`;
+    return `<b>${who}</b> ${a.action==='INSERT'?'dodał(a)':'zmienił(a)'} wynik <strong>${esc(memberName(target))}</strong>${n.result_text?`: ${esc(n.result_text)}`:''}`;
+  }
+  if(a.entity_type==='team_members'){
+    const target=n.display_name||o.display_name||label;
+    return a.action==='INSERT'?`<b>${who}</b> dołączył(a) do ekipy jako <strong>${esc(target)}</strong>`:`<b>${who}</b> zmienił(a) dane członka <strong>${esc(target)}</strong>`;
+  }
+  return `<b>${who}</b> wprowadził(a) zmianę w aplikacji`;
+}
+function activityIcon(a){ return ({races:'🏁',race_participants:'👥',tasks:'✓',expenses:'💰',expense_shares:'🤝',race_vehicles:'🚗',packing_items:'📦',race_results:'★',team_members:'👤'})[a.entity_type]||'•'; }
+function activityView(){
+  const rows=[...state.activity].sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
+  const unseenAt=state.activityReadAt?new Date(state.activityReadAt).getTime():0;
+  return `<section class="card activity-card"><div class="card-header"><div><h2>🔔 Co się zmieniło</h2><div class="muted small">Wspólna historia zmian całej ekipy. Prywatne notatki i prywatne nagrody nie są tutaj rejestrowane.</div></div><span class="badge info">${rows.length} wpisów</span></div><div class="activity-list">${rows.length?rows.map(a=>{const unread=a.actor_id!==state.user.id&&new Date(a.created_at).getTime()>unseenAt;return `<div class="activity-row ${unread?'unread':''}"><div class="activity-icon">${activityIcon(a)}</div><div class="grow"><div class="activity-message">${activityMessage(a)}</div><div class="activity-meta">${fmtActivityTime(a.created_at)}${a.race_id&&state.races.some(r=>r.id===a.race_id)?` • <button class="link-btn" data-activity-race="${a.race_id}">Otwórz wyścig</button>`:''}</div></div>${unread?'<span class="activity-dot" title="Nowe"></span>':''}</div>`}).join(''):'<div class="empty"><div class="big">🔔</div>Nie ma jeszcze zapisanych zmian. Nowe wpisy pojawią się tutaj automatycznie.</div>'}</div></section>`;
+}
+async function markActivityRead(){
+  if(state.view!=='activity'||!state.team||!state.user)return;
+  const ts=new Date().toISOString();
+  if(state.demo){state.activityReadAt=ts;saveDemo();return;}
+  const {error}=await supabase.from('activity_reads').upsert({team_id:state.team.id,user_id:state.user.id,last_seen_at:ts},{onConflict:'team_id,user_id'});
+  if(!error)state.activityReadAt=ts;
+}
+
 function notesView(){
   const notes=[...myPrivateNotes()].sort((a,b)=>String(b.updated_at||b.created_at||'').localeCompare(String(a.updated_at||a.created_at||'')));
   const prizes=[...myPrizeEntries()].sort((a,b)=>String(b.awarded_at||'').localeCompare(String(a.awarded_at||'')));
@@ -391,7 +476,7 @@ function detailPacking(r){
 function memberOptions(selected=''){return state.members.map(m=>`<option value="${m.user_id}" ${m.user_id===selected?'selected':''}>${esc(m.display_name)}</option>`).join('');}
 
 function bindGlobal(){
-  document.querySelectorAll('[data-nav]').forEach(b=>b.addEventListener('click',()=>{state.view=b.dataset.nav;state.selectedRaceId=null;if(['dashboard','calendar','races','tasks','results','costs','notes','team'].includes(state.view))history.replaceState(null,'','#'+state.view);render()}));
+  document.querySelectorAll('[data-nav]').forEach(b=>b.addEventListener('click',()=>{state.view=b.dataset.nav;state.selectedRaceId=null;if(['dashboard','calendar','races','tasks','results','costs','activity','notes','team'].includes(state.view))history.replaceState(null,'','#'+state.view);render()}));
   document.querySelectorAll('[data-add-race]').forEach(b=>b.addEventListener('click',()=>openRaceModal()));
   document.querySelectorAll('[data-add-team-task]').forEach(b=>b.addEventListener('click',()=>openTaskModal()));
   document.querySelectorAll('[data-task-member]').forEach(b=>b.addEventListener('click',()=>openTaskModal(null,b.dataset.taskMember)));
@@ -419,6 +504,8 @@ function bindGlobal(){
   document.querySelector('#copyInvite')?.addEventListener('click',async()=>{await navigator.clipboard.writeText(state.team.invite_code);toast('Kod skopiowany')});
   document.querySelector('#logoutBtn')?.addEventListener('click',async()=>{if(state.demo){toast('W trybie demo wylogowanie jest wyłączone');return;}await supabase.auth.signOut()});
   document.querySelector('#exportCsv')?.addEventListener('click',exportCsv);
+  document.querySelectorAll('[data-activity-race]').forEach(b=>b.addEventListener('click',()=>{state.selectedRaceId=b.dataset.activityRace;state.view='race';state.detailTab='overview';render()}));
+  if(state.view==='activity')markActivityRead();
   if(state.view==='race')bindRaceDetail();
 }
 
