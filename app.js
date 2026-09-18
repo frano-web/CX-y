@@ -221,7 +221,7 @@ async function init(){
 
   // PWA/push nie może nigdy blokować wejścia do aplikacji — szczególnie na iOS.
   if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).catch(e=>console.warn('SW register',e));
+    navigator.serviceWorker.register('./sw.js?v=10',{updateViaCache:'none'}).catch(e=>console.warn('SW register',e));
   }
   if(state.demo){ seedDemo(); state.loading=false; window.__cxBootOk=true; render(); return; }
 
@@ -296,12 +296,25 @@ function renderAuth(){
   </div></div>`;
   document.querySelector('#authSwitch')?.addEventListener('click',()=>{state.authMode=signup?'signin':'signup';render();});
   document.querySelector('#authForm')?.addEventListener('submit',async e=>{
-    e.preventDefault(); const f=new FormData(e.currentTarget); const email=f.get('email'),password=f.get('password');
+    e.preventDefault(); const f=new FormData(e.currentTarget); const email=String(f.get('email')||'').trim().toLowerCase(),password=String(f.get('password')||'');
     try{
       if(signup){ const {data,error}=await supabase.auth.signUp({email,password,options:{data:{display_name:f.get('name')}}}); if(error)throw error; if(data.session){ state.user=data.user; } else { state.user=null; state.authMode='signin'; } toast(data.session?'Konto utworzone':'Sprawdź e-mail i potwierdź konto, a potem się zaloguj'); }
-      else { const {data,error}=await supabase.auth.signInWithPassword({email,password}); if(error)throw error; state.user=data.user; await loadRealData(); subscribeRealtime(); await refreshPushState(true); }
+      else {
+        // Logowanie jest niezależne od PWA i powiadomień. Push NIGDY nie może zablokować sesji.
+        const {data,error}=await supabase.auth.signInWithPassword({email,password});
+        if(error) throw error;
+        state.user=data.user;
+        try { await loadRealData(); subscribeRealtime(); }
+        catch(loadErr){ console.error('Dane po logowaniu',loadErr); toast('Zalogowano, ale nie udało się pobrać danych. Spróbuj odświeżyć.',true); }
+        refreshPushState(true).then(()=>render()).catch(pushErr=>console.warn('Push po logowaniu',pushErr));
+      }
       render();
-    }catch(err){ toast(err.message||'Błąd logowania',true); }
+    }catch(err){
+      const raw=String(err?.message||err||'');
+      const low=raw.toLowerCase();
+      if(low.includes('invalid login credentials') || low.includes('invalid password')) toast('Nieprawidłowy e-mail lub hasło. Push nie zmienia haseł w Supabase.',true);
+      else toast(raw||'Nie udało się zalogować',true);
+    }
   });
 }
 
@@ -311,8 +324,8 @@ function renderOnboarding(){
     <div class="onboard-option"><h3>Dołącz kodem</h3><p>Wpisz 6-znakowy kod otrzymany od kolegi.</p><form id="joinTeam"><label>Kod ekipy<input name="code" required maxlength="6" style="text-transform:uppercase" placeholder="ABC123"></label><button class="btn" style="margin-top:12px;width:100%">Dołącz</button></form></div></div>
     <div style="text-align:center;margin-top:18px"><button class="link-btn" id="logoutOnboard">Wyloguj</button></div>
   </div></div>`;
-  document.querySelector('#createTeam').addEventListener('submit',async e=>{e.preventDefault();const name=new FormData(e.currentTarget).get('name');try{const {error}=await supabase.rpc('create_team',{team_name:name});if(error)throw error;await loadRealData();subscribeRealtime();await refreshPushState(true);render();}catch(x){toast(x.message,true)}});
-  document.querySelector('#joinTeam').addEventListener('submit',async e=>{e.preventDefault();const code=new FormData(e.currentTarget).get('code');try{const {error}=await supabase.rpc('join_team',{code});if(error)throw error;await loadRealData();subscribeRealtime();await refreshPushState(true);render();}catch(x){toast(x.message,true)}});
+  document.querySelector('#createTeam').addEventListener('submit',async e=>{e.preventDefault();const name=new FormData(e.currentTarget).get('name');try{const {error}=await supabase.rpc('create_team',{team_name:name});if(error)throw error;await loadRealData();subscribeRealtime();refreshPushState(true).then(()=>render()).catch(e=>console.warn('Push onboarding',e));render();}catch(x){toast(x.message,true)}});
+  document.querySelector('#joinTeam').addEventListener('submit',async e=>{e.preventDefault();const code=new FormData(e.currentTarget).get('code');try{const {error}=await supabase.rpc('join_team',{code});if(error)throw error;await loadRealData();subscribeRealtime();refreshPushState(true).then(()=>render()).catch(e=>console.warn('Push onboarding',e));render();}catch(x){toast(x.message,true)}});
   document.querySelector('#logoutOnboard').addEventListener('click',()=>supabase.auth.signOut());
 }
 
@@ -585,7 +598,7 @@ function bindGlobal(){
   document.querySelector('#calPrev')?.addEventListener('click',()=>{state.calDate=new Date(state.calDate.getFullYear(),state.calDate.getMonth()-1,1);render()});
   document.querySelector('#calNext')?.addEventListener('click',()=>{state.calDate=new Date(state.calDate.getFullYear(),state.calDate.getMonth()+1,1);render()});
   document.querySelector('#copyInvite')?.addEventListener('click',async()=>{await navigator.clipboard.writeText(state.team.invite_code);toast('Kod skopiowany')});
-  document.querySelector('#logoutBtn')?.addEventListener('click',async()=>{if(state.demo){toast('W trybie demo wylogowanie jest wyłączone');return;}if(state.pushSubscribed)await disablePush();await supabase.auth.signOut()});
+  document.querySelector('#logoutBtn')?.addEventListener('click',async()=>{if(state.demo){toast('W trybie demo wylogowanie jest wyłączone');return;}try{if(state.pushSubscribed)await disablePush();}catch(e){console.warn('Push logout',e);}finally{await supabase.auth.signOut();}});
   document.querySelector('#exportCsv')?.addEventListener('click',exportCsv);
   document.querySelectorAll('[data-push-toggle]').forEach(b=>b.addEventListener('click',()=>state.pushSubscribed?disablePush():enablePush()));
   document.querySelectorAll('[data-activity-race]').forEach(b=>b.addEventListener('click',()=>{state.selectedRaceId=b.dataset.activityRace;state.view='race';state.detailTab='overview';render()}));

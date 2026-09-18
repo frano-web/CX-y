@@ -1,40 +1,26 @@
-const CACHE = 'cx-trip-v9-ios-startup-fix';
-const APP_SHELL = ['./','./index.html','./styles.css','./app.js','./config.js','./manifest.webmanifest','./icons/icon.svg','./icons/icon-192.png','./icons/icon-512.png'];
+const CACHE_PREFIX = 'cx-trip-';
 
-self.addEventListener('install', e => {
+self.addEventListener('install', event => {
   self.skipWaiting();
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(APP_SHELL)));
 });
-self.addEventListener('activate', e => e.waitUntil(Promise.all([
-  self.clients.claim(),
-  caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-])));
-self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
-  const url = new URL(e.request.url);
 
-  // Nie przechwytujemy bibliotek/CDN ani API Supabase. Błąd sieci nie może zwrócić HTML jako JavaScript/JSON.
-  if (url.origin !== self.location.origin) return;
-
-  // Dla wejścia do PWA: sieć -> cache strony głównej.
-  if (e.request.mode === 'navigate') {
-    e.respondWith(fetch(e.request).then(r => {
-      if (r && r.ok) caches.open(CACHE).then(c => c.put('./index.html', r.clone())).catch(()=>{});
-      return r;
-    }).catch(async () => (await caches.match('./index.html')) || (await caches.match('./'))));
-    return;
-  }
-
-  // Dla lokalnych assetów: sieć -> dokładny plik z cache. Bez fallbacku index.html dla JS/CSS.
-  e.respondWith(fetch(e.request).then(r => {
-    if (r && r.ok) caches.open(CACHE).then(c => c.put(e.request, r.clone())).catch(()=>{});
-    return r;
-  }).catch(() => caches.match(e.request)));
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    // Usuń wszystkie stare cache CX Trip. Aplikacja działa online-first,
+    // a service worker służy przede wszystkim do Web Push.
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(k => k.startsWith(CACHE_PREFIX)).map(k => caches.delete(k)));
+    await self.clients.claim();
+  })());
 });
+
+// Celowo NIE przechwytujemy fetch(). Dzięki temu stare pliki PWA nie mogą
+// nadpisać nowego logowania, config.js ani app.js.
 
 self.addEventListener('push', event => {
   let data = {};
-  try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data?.text() || 'Nowa zmiana w CX Trip' }; }
+  try { data = event.data ? event.data.json() : {}; }
+  catch { data = { body: event.data?.text() || 'Nowa zmiana w CX Trip' }; }
   const title = data.title || 'CX Trip';
   const options = {
     body: data.body || 'Ktoś wprowadził zmianę w aplikacji.',
@@ -54,11 +40,14 @@ self.addEventListener('push', event => {
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  const target = new URL(event.notification.data?.url || './#activity', self.location.origin + self.location.pathname).href;
+  const target = new URL(event.notification.data?.url || './#activity', self.registration.scope).href;
   event.waitUntil((async()=>{
-    const list = await clients.matchAll({type:'window',includeUncontrolled:true});
+    const list = await clients.matchAll({type:'window', includeUncontrolled:true});
     for (const client of list) {
-      if ('focus' in client) { try { await client.navigate(target); } catch {} return client.focus(); }
+      if ('focus' in client) {
+        try { await client.navigate(target); } catch {}
+        return client.focus();
+      }
     }
     return clients.openWindow(target);
   })());
