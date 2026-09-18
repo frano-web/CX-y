@@ -17,7 +17,8 @@ const state = {
   user: null, team: null, members: [], races: [], participants: [], tasks: [], expenses: [], shares: [], vehicles: [], packing: [], results: [], privateNotes: [], prizes: [], activity: [], activityReadAt: null,
   view: 'dashboard', selectedRaceId: null, detailTab: 'overview', search: '', raceFilter: 'nadchodzace',
   taskFilter: 'open', taskMemberFilter: 'all', calDate: new Date(), loading: true, authMode: 'signin', realtime: null, demo: !configured,
-  pushSupported: ('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window), pushPermission: ('Notification' in window ? Notification.permission : 'unsupported'), pushSubscribed: false, pushBusy: false
+  pushSupported: ('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window), pushPermission: ('Notification' in window ? Notification.permission : 'unsupported'), pushSubscribed: false, pushBusy: false,
+  passwordRecovery: false
 };
 
 function uid(){ return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)+Date.now(); }
@@ -221,14 +222,18 @@ async function init(){
 
   // PWA/push nie może nigdy blokować wejścia do aplikacji — szczególnie na iOS.
   if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('./sw.js?v=11',{updateViaCache:'none'}).catch(e=>console.warn('SW register',e));
+    navigator.serviceWorker.register('./sw.js?v=12',{updateViaCache:'none'}).catch(e=>console.warn('SW register',e));
   }
   if(state.demo){ seedDemo(); state.loading=false; window.__cxBootOk=true; render(); return; }
 
   try{
     const {data:{session}}=await withTimeout(supabase.auth.getSession(),10000,'Logowanie');
     state.user=session?.user||null;
-    supabase.auth.onAuthStateChange((_evt,session)=>{ state.user=session?.user||null; if(!state.user){ Object.assign(state,{team:null,members:[],races:[]}); render(); }});
+    supabase.auth.onAuthStateChange((evt,session)=>{
+      state.user=session?.user||null;
+      if(evt==='PASSWORD_RECOVERY'){ state.passwordRecovery=true; state.loading=false; render(); return; }
+      if(!state.user){ Object.assign(state,{team:null,members:[],races:[]}); render(); }
+    });
     if(state.user){
       try{ await withTimeout(loadRealData(),15000,'Pobieranie danych'); subscribeRealtime(); }
       catch(e){ console.error(e); toast('Nie udało się pobrać danych. Sprawdź internet i spróbuj ponownie.',true); }
@@ -269,6 +274,7 @@ function appShell(content,title){
 
 function render(){
   if(state.loading){ app.innerHTML='<div class="auth-wrap"><div class="auth-card"><div class="auth-brand"><div class="brand-mark">CX</div><h1>Ładowanie…</h1></div></div></div>'; return; }
+  if(state.passwordRecovery && state.user) return renderPasswordRecovery();
   if(!state.user) return renderAuth();
   if(!state.demo && !state.team) return renderOnboarding();
   let content='',title='CX Trip';
@@ -290,9 +296,20 @@ function renderAuth(){
   app.innerHTML=`<div class="auth-wrap"><div class="auth-card"><div class="auth-brand"><div class="brand-mark">CX</div><h1>CX Trip</h1><p>Wspólny planer wyjazdów na wyścigi.</p></div>
     <form id="authForm">${signup?'<label>Imię<input name="name" required autocomplete="name" placeholder="np. Dawid"></label>':''}<label>E-mail<input name="email" type="email" required autocomplete="email"></label><label>Hasło<input name="password" type="password" minlength="6" required autocomplete="current-password"></label><button class="btn btn-primary" type="submit">${signup?'Utwórz konto':'Zaloguj się'}</button></form>
     <div class="auth-switch">${signup?'Masz już konto?':'Pierwszy raz?'} <button class="link-btn" id="authSwitch">${signup?'Zaloguj się':'Załóż konto'}</button></div>
+    ${!signup?'<div class="auth-switch"><button class="link-btn" id="forgotPassword">Nie pamiętam hasła</button></div>':''}
     ${!configured?'<div class="demo-note">Tryb demo — Supabase nie jest jeszcze skonfigurowany.</div>':''}
   </div></div>`;
   document.querySelector('#authSwitch')?.addEventListener('click',()=>{state.authMode=signup?'signin':'signup';render();});
+  document.querySelector('#forgotPassword')?.addEventListener('click',async()=>{
+    const email=(document.querySelector('#authForm input[name="email"]')?.value||'').trim();
+    if(!email){ toast('Najpierw wpisz swój e-mail',true); return; }
+    try{
+      const redirectTo=location.origin+location.pathname;
+      const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo});
+      if(error)throw error;
+      toast('Wysłaliśmy link do zmiany hasła na e-mail');
+    }catch(err){ toast(err.message||'Nie udało się wysłać resetu',true); }
+  });
   document.querySelector('#authForm')?.addEventListener('submit',async e=>{
     e.preventDefault(); const f=new FormData(e.currentTarget); const email=f.get('email'),password=f.get('password');
     try{
@@ -300,6 +317,20 @@ function renderAuth(){
       else { const {data,error}=await supabase.auth.signInWithPassword({email,password}); if(error)throw error; state.user=data.user; await loadRealData(); subscribeRealtime(); }
       render();
     }catch(err){ toast(err.message||'Błąd logowania',true); }
+  });
+}
+
+function renderPasswordRecovery(){
+  app.innerHTML=`<div class="auth-wrap"><div class="auth-card"><div class="auth-brand"><div class="brand-mark">CX</div><h1>Ustaw nowe hasło</h1><p>To nadal jest to samo konto. Twoje dane i członkostwo w ekipie zostaną zachowane.</p></div>\n    <form id="recoveryForm"><label>Nowe hasło<input name="password" type="password" minlength="6" required autocomplete="new-password"></label><label>Powtórz hasło<input name="password2" type="password" minlength="6" required autocomplete="new-password"></label><button class="btn btn-primary" type="submit">Zapisz nowe hasło</button></form>
+  </div></div>`;
+  document.querySelector('#recoveryForm')?.addEventListener('submit',async e=>{
+    e.preventDefault(); const f=new FormData(e.currentTarget); const p1=f.get('password'),p2=f.get('password2');
+    if(p1!==p2){toast('Hasła nie są takie same',true);return;}
+    try{
+      const {error}=await supabase.auth.updateUser({password:p1}); if(error)throw error;
+      state.passwordRecovery=false; toast('Hasło zostało zmienione');
+      await loadRealData(); subscribeRealtime(); render();
+    }catch(err){toast(err.message||'Nie udało się zmienić hasła',true);}
   });
 }
 
