@@ -223,16 +223,22 @@ async function init(){
 function navButton(view,icon,label,badge=0){ return `<button data-nav="${view}" class="${state.view===view?'active':''}"><span class="icon">${icon}</span><span class="nav-label">${label}</span>${badge?`<span class="nav-count">${badge>99?'99+':badge}</span>`:''}</button>`; }
 function mobileNavButton(view,icon,label,badge=0){ return `<button data-nav="${view}" class="${state.view===view?'active':''}"><span class="mobile-icon-wrap"><span class="micon">${icon}</span>${badge?`<span class="mobile-count">${badge>99?'99+':badge}</span>`:''}</span>${label}</button>`; }
 function appShell(content,title){
+  const unread=activityUnreadCount();
   return `<div class="app-shell">
     <aside class="sidebar"><div class="brand"><div class="brand-mark">CX</div><div><b>CX Trip</b><small>Race manager</small></div></div>
-      <nav class="nav">${navButton('dashboard','⌂','Pulpit')}${navButton('calendar','▦','Kalendarz')}${navButton('races','🏁','Wyścigi')}${navButton('tasks','✓','Zadania')}${navButton('results','★','Wyniki')}${navButton('costs','₿','Koszty')}${navButton('activity','🔔','Aktywność',activityUnreadCount())}${navButton('notes','✎','Notatki')}${navButton('team','♟','Ekipa')}</nav>
+      <nav class="nav">${navButton('dashboard','⌂','Pulpit')}${navButton('calendar','▦','Kalendarz')}${navButton('races','🏁','Wyścigi')}${navButton('tasks','✓','Zadania')}${navButton('results','★','Wyniki')}${navButton('costs','₿','Koszty')}${navButton('notes','✎','Notatki')}${navButton('team','♟','Ekipa')}</nav>
       <div class="sidebar-footer"><div class="team-chip"><strong>${esc(state.team?.name||'')}</strong>Kod ekipy: <b>${esc(state.team?.invite_code||'—')}</b></div></div>
     </aside>
     <main class="main"><header class="topbar"><h1>${esc(title)}</h1><div class="top-actions">
       ${state.view==='tasks' ? '<button class="btn btn-primary hide-mobile" data-add-team-task>+ Dodaj zadanie</button>' : state.view==='results' ? '<button class="btn btn-primary hide-mobile" data-add-result>+ Dodaj wynik</button>' : state.view==='notes' ? '<button class="btn btn-primary hide-mobile" data-add-note>+ Notatka</button>' : (state.view!=='race' ? '<button class="btn btn-primary hide-mobile" data-add-race>+ Dodaj wyścig</button>':'')}
+      <button class="notification-bell ${state.view==='activity'?'active':''}" data-nav="activity" aria-label="Aktywność i powiadomienia${unread?`, ${unread} nieprzeczytanych`:''}" title="Aktywność ekipy"><span class="bell-icon">🔔</span>${unread?`<span class="bell-count">${unread>99?'99+':unread}</span>`:''}</button>
       ${state.pushSupported?`<button class="btn btn-sm push-top ${state.pushSubscribed?'push-on':''}" data-push-toggle title="${state.pushSubscribed?'Powiadomienia push włączone':'Włącz powiadomienia push'}">${state.pushSubscribed?'🔔 ✓':'🔕 Włącz'}</button>`:''}<div class="user-pill"><div class="avatar">${esc(memberInitials(state.user.id))}</div><span>${esc(memberName(state.user.id))}</span></div>
     </div></header><div class="content">${content}</div></main>
-    <nav class="mobile-nav">${mobileNavButton('dashboard','⌂','Pulpit')}${mobileNavButton('calendar','▦','Kalendarz')}${mobileNavButton('races','🏁','Wyścigi')}${mobileNavButton('tasks','✓','Zadania')}${mobileNavButton('results','★','Wyniki')}${mobileNavButton('costs','₿','Koszty')}${mobileNavButton('activity','🔔','Aktywność',activityUnreadCount())}${mobileNavButton('notes','✎','Notatki')}${mobileNavButton('team','♟','Ekipa')}</nav>
+    <div class="mobile-nav-shell">
+      <div class="mobile-nav-progress" aria-hidden="true"><span id="mobileNavProgress"></span></div>
+      <nav class="mobile-nav" id="mobileNav">${mobileNavButton('dashboard','⌂','Pulpit')}${mobileNavButton('calendar','▦','Kalendarz')}${mobileNavButton('races','🏁','Wyścigi')}${mobileNavButton('tasks','✓','Zadania')}${mobileNavButton('results','★','Wyniki')}${mobileNavButton('costs','₿','Koszty')}${mobileNavButton('notes','✎','Notatki')}${mobileNavButton('team','♟','Ekipa')}</nav>
+      <div class="mobile-nav-more" id="mobileNavMore" aria-hidden="true"><span>›</span></div>
+    </div>
     ${state.view==='tasks'?'<button class="fab" data-add-team-task aria-label="Dodaj zadanie">+</button>':state.view==='results'?'<button class="fab" data-add-result aria-label="Dodaj wynik">+</button>':state.view==='notes'?'<button class="fab" data-add-note aria-label="Dodaj notatkę">+</button>':(state.view!=='race'?'<button class="fab" data-add-race aria-label="Dodaj wyścig">+</button>':'')}
   </div>`;
 }
@@ -558,7 +564,33 @@ function bindGlobal(){
   document.querySelectorAll('[data-push-toggle]').forEach(b=>b.addEventListener('click',()=>state.pushSubscribed?disablePush():enablePush()));
   document.querySelectorAll('[data-activity-race]').forEach(b=>b.addEventListener('click',()=>{state.selectedRaceId=b.dataset.activityRace;state.view='race';state.detailTab='overview';render()}));
   if(state.view==='activity')markActivityRead();
+  initMobileNavScroll();
   if(state.view==='race')bindRaceDetail();
+}
+
+function initMobileNavScroll(){
+  const nav=document.querySelector('#mobileNav');
+  const thumb=document.querySelector('#mobileNavProgress');
+  const more=document.querySelector('#mobileNavMore');
+  if(!nav||!thumb||!more)return;
+  const sync=()=>{
+    const max=Math.max(0,nav.scrollWidth-nav.clientWidth);
+    const track=thumb.parentElement?.clientWidth||0;
+    const ratio=nav.scrollWidth?Math.min(1,nav.clientWidth/nav.scrollWidth):1;
+    const width=Math.max(34,track*ratio);
+    const x=max>0?(track-width)*(nav.scrollLeft/max):0;
+    thumb.style.width=`${Math.min(track,width)}px`;
+    thumb.style.transform=`translateX(${x}px)`;
+    more.classList.toggle('at-end',max<=2||nav.scrollLeft>=max-4);
+  };
+  nav.addEventListener('scroll',sync,{passive:true});
+  window.addEventListener('resize',sync,{passive:true,once:true});
+  requestAnimationFrame(()=>{
+    sync();
+    const active=nav.querySelector('button.active');
+    if(active)active.scrollIntoView({block:'nearest',inline:'center'});
+    requestAnimationFrame(sync);
+  });
 }
 
 function bindRaceDetail(){
