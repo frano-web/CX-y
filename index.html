@@ -8,17 +8,64 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black" />
   <meta name="apple-mobile-web-app-title" content="CX Trip" />
   <meta name="description" content="CX Trip — wspólne planowanie wyjazdów na wyścigi." />
-  <link rel="manifest" href="./manifest.webmanifest?v=13" />
-  <link rel="icon" href="./icons/icon.svg?v=13" type="image/svg+xml" />
-  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png?v=13" />
-  <link rel="apple-touch-icon-precomposed" sizes="180x180" href="./apple-touch-icon.png?v=13" />
-  <link rel="stylesheet" href="./styles.css?v=13" />
+  <link rel="manifest" href="./manifest.webmanifest?v=14" />
+  <link rel="icon" href="./icons/icon.svg?v=14" type="image/svg+xml" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png?v=14" />
+  <link rel="apple-touch-icon-precomposed" sizes="180x180" href="./apple-touch-icon.png?v=14" />
+  <link rel="stylesheet" href="./styles.css?v=14" />
+  <style>
+    @media (max-width: 900px) {
+      :root { --cx-compact-line: 1.15; }
+      #app * { box-sizing: border-box; }
+      #app [role="grid"],
+      #app table,
+      #app [class*="calendar-grid"],
+      #app [class*="month-grid"] {
+        width: 100% !important;
+        max-width: 100% !important;
+      }
+      #app [role="gridcell"],
+      #app td,
+      #app [class*="calendar-day"],
+      #app [class*="day-cell"],
+      #app [class*="month-cell"] {
+        min-width: 0 !important;
+        overflow: hidden !important;
+      }
+      #app [class*="calendar"] button,
+      #app [class*="calendar"] a,
+      #app [class*="calendar"] [class*="chip"],
+      #app [class*="calendar"] [class*="badge"],
+      #app [class*="calendar"] [class*="pill"],
+      #app [class*="calendar"] [class*="event"],
+      #app [class*="calendar"] [class*="race"],
+      #app [class*="calendar"] [class*="hotel"] {
+        max-width: 100% !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+      }
+      #app [class*="calendar"] [data-cx-compact="true"] {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        line-height: var(--cx-compact-line) !important;
+        font-size: 11px !important;
+      }
+      #app [data-cx-compact-hotel="true"] {
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 4px !important;
+        max-width: 100% !important;
+      }
+    }
+  </style>
   <title>CX Trip</title>
 </head>
 <body>
   <div id="app"><div class="auth-wrap"><div class="auth-card"><div class="auth-brand"><div class="brand-mark">CX</div><h1>Ładowanie…</h1><p>Uruchamianie CX Trip</p></div></div></div></div>
   <div id="toast" class="toast" aria-live="polite"></div>
-  <script src="./config.js?v=13"></script>
+  <script src="./config.js?v=14"></script>
   <script>
     window.__cxBootOk = false;
     setTimeout(function(){
@@ -28,6 +75,64 @@
       }
     },18000);
   </script>
-  <script type="module" src="./app.js?v=13"></script>
+  <script type="module" src="./app.js?v=14"></script>
+  <script>
+    (function(){
+      if (window.innerWidth > 900) return;
+
+      function compactText(text) {
+        var t = (text || '').replace(/\s+/g, ' ').trim();
+        if (!t) return t;
+        var days = t.match(/(\d+)\s*dzień wcześniej/i) || t.match(/(\d+)\s*dni wcześniej/i);
+        if (/hotel/i.test(t) && /dzień wcze/i.test(t) && days) return '🏨 -' + days[1] + 'd';
+        if (/hotel/i.test(t) && days) return '🏨 -' + days[1] + 'd';
+        if (/hotel/i.test(t)) return '🏨 Hotel';
+        if (/^wyniki$/i.test(t)) return '★ Wyniki';
+        if (/^mistrzostwa polski/i.test(t)) return t.replace(/mistrzostwa polski/ig, 'MP');
+        return t;
+      }
+
+      function maybeCompact(el) {
+        if (!el || el.children.length > 0) return;
+        var text = (el.textContent || '').trim();
+        if (!text) return;
+        var newText = compactText(text);
+        if (newText !== text) {
+          el.textContent = newText;
+        }
+        if (/Hotel|Wyniki|MP|dzień wcześniej|dni wcześniej|Tychy|Puchar|Mistrzostwa|Cross/i.test(el.textContent || '')) {
+          el.setAttribute('data-cx-compact', 'true');
+          if (/🏨|hotel/i.test(el.textContent || '')) {
+            el.setAttribute('data-cx-compact-hotel', 'true');
+          }
+          var current = (el.textContent || '').trim();
+          if (current.length > 26 && !/🏨/.test(current)) {
+            el.textContent = current.slice(0, 24) + '…';
+          }
+        }
+      }
+
+      function runCompact() {
+        var app = document.getElementById('app');
+        if (!app) return;
+        var nodes = app.querySelectorAll('*');
+        nodes.forEach(maybeCompact);
+      }
+
+      var obs = new MutationObserver(function(){ runCompact(); });
+      function startObserver(){
+        var app = document.getElementById('app');
+        if (!app) return;
+        obs.observe(app, { childList: true, subtree: true, characterData: true });
+        runCompact();
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function(){ setTimeout(startObserver, 800); });
+      } else {
+        setTimeout(startObserver, 800);
+      }
+      window.addEventListener('resize', function(){ if (window.innerWidth <= 900) runCompact(); });
+    })();
+  </script>
 </body>
 </html>
