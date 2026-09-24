@@ -33,6 +33,7 @@ create table if not exists public.races (
   venue_url text,
   registration_url text,
   category text,
+  entry_fee_paid boolean not null default false,
   status text not null default 'planowany' check (status in ('planowany','potwierdzony','zakonczony','odwolany')),
   hotel_status text not null default 'brak' check (hotel_status in ('brak','szukamy','zarezerwowany','oplacony')),
   hotel_name text,
@@ -246,3 +247,7 @@ do $$ begin alter publication supabase_realtime add table public.expense_shares;
 do $$ begin alter publication supabase_realtime add table public.race_vehicles; exception when duplicate_object then null; end $$;
 do $$ begin alter publication supabase_realtime add table public.packing_items; exception when duplicate_object then null; end $$;
 do $$ begin alter publication supabase_realtime add table public.team_members; exception when duplicate_object then null; end $$;
+
+
+-- V15: status opłacenia startowego dla całego wyścigu
+alter table public.races add column if not exists entry_fee_paid boolean not null default false;
