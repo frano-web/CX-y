@@ -16,7 +16,7 @@ const MONTH = new Intl.DateTimeFormat('pl-PL',{month:'long',year:'numeric'});
 const state = {
   user: null, team: null, members: [], races: [], participants: [], tasks: [], expenses: [], shares: [], vehicles: [], packing: [], results: [], privateNotes: [], prizes: [], activity: [], activityReadAt: null,
   view: 'dashboard', selectedRaceId: null, detailTab: 'overview', search: '', raceFilter: 'nadchodzace',
-  taskFilter: 'open', taskMemberFilter: 'all', calDate: new Date(), loading: true, authMode: 'signin', realtime: null, demo: !configured,
+  taskFilter: 'open', taskMemberFilter: 'all', calDate: new Date(), calSelectedDate: null, loading: true, authMode: 'signin', realtime: null, demo: !configured,
   pushSupported: ('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window), pushPermission: ('Notification' in window ? Notification.permission : 'unsupported'), pushSubscribed: false, pushBusy: false,
   passwordRecovery: false
 };
@@ -223,7 +223,7 @@ async function init(){
 
   // PWA/push nie może nigdy blokować wejścia do aplikacji — szczególnie na iOS.
   if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('./sw.js?v=16',{updateViaCache:'none'}).catch(e=>console.warn('SW register',e));
+    navigator.serviceWorker.register('./sw.js?v=17',{updateViaCache:'none'}).catch(e=>console.warn('SW register',e));
   }
   if(state.demo){ seedDemo(); state.loading=false; window.__cxBootOk=true; render(); return; }
 
@@ -389,41 +389,41 @@ function calendarView(){
   let start=new Date(first);
   const dow=(first.getDay()+6)%7;
   start.setDate(first.getDate()-dow);
-  const mobile=window.innerWidth<=820;
-  const monthLabel=MONTH.format(state.calDate);
-  const monthEvents=[];
-  state.races.forEach(r=>{
-    const raceDate=dateObj(r.race_date);
-    if(raceDate && raceDate.getFullYear()===y && raceDate.getMonth()===m){
-      monthEvents.push({kind:'race',date:r.race_date,race:r});
-    }
-    const hotelDate=hotelArrivalDate(r);
-    const hd=dateObj(hotelDate);
-    if(r.hotel_status&&r.hotel_status!=='brak' && hd && hd.getFullYear()===y && hd.getMonth()===m){
-      monthEvents.push({kind:'hotel',date:hotelDate,race:r});
-    }
-  });
-  monthEvents.sort((a,b)=>String(a.date).localeCompare(String(b.date)) || a.kind.localeCompare(b.kind));
 
-  if(mobile){
-    const grouped={};
-    monthEvents.forEach(ev=>{ (grouped[ev.date] ||= []).push(ev); });
-    const days=Object.keys(grouped).sort();
-    return `<section class="card calendar-card"><div class="calendar-toolbar"><button class="btn btn-sm" id="calPrev">←</button><h2>${esc(monthLabel)}</h2><button class="btn btn-sm" id="calNext">→</button></div><div class="calendar-mobile-note">Na telefonie pokazujemy prostą listę, żeby wszystko było czytelne i nie rozjeżdżało się.</div><div class="agenda-list">${days.length?days.map(day=>`<div class="agenda-day"><div class="agenda-date"><b>${dateObj(day).getDate()}</b><span>${dateObj(day).toLocaleString('pl-PL',{month:'short',weekday:'short'})}</span></div><div class="agenda-items">${grouped[day].map(ev=>ev.kind==='hotel'?`<button class="agenda-item hotel" data-open-race="${ev.race.id}" data-tab="hotel"><span class="agenda-tag">🏨 Hotel</span><strong>${esc(shortRaceName(ev.race.name))}</strong><small>${esc(hotelArrivalLabel(ev.race))}</small></button>`:`<button class="agenda-item race" data-open-race="${ev.race.id}"><span class="agenda-tag">🏁 Wyścig</span><strong>${esc(shortRaceName(ev.race.name))}</strong><small>${esc(ev.race.city||ev.race.race_address||'Brak lokalizacji')}</small></button>`).join('')}</div></div>`).join(''):'<div class="empty">Brak wydarzeń w tym miesiącu.</div>'}</div></section>`;
+  const todayKey=isoDate(new Date());
+  if(!state.calSelectedDate){
+    const today=dateObj(todayKey);
+    state.calSelectedDate=(today&&today.getFullYear()===y&&today.getMonth()===m)?todayKey:isoDate(first);
   }
 
   const days=[];
   for(let i=0;i<42;i++){
-    const d=new Date(start); d.setDate(start.getDate()+i); const key=isoDate(d);
-    const ev=state.races.filter(r=>r.race_date===key);
-    const hotelEv=state.races.filter(r=>r.hotel_status&&r.hotel_status!=='brak'&&hotelArrivalDate(r)===key);
-    const pills=[
-      ...hotelEv.map(r=>`<button class="cal-pill hotel ${r.hotel_status==='szukamy'?'searching':''}" data-open-race="${r.id}" data-tab="hotel" title="Hotel • ${attr(r.name)}">🏨 ${esc(shortRaceName(r.name))}</button>`),
-      ...ev.map(r=>`<button class="cal-pill race" data-open-race="${r.id}" title="${attr(r.name)}">🏁 ${esc(shortRaceName(r.name))}</button>`)
+    const d=new Date(start); d.setDate(start.getDate()+i);
+    const key=isoDate(d);
+    const races=state.races.filter(r=>r.race_date===key);
+    const hotels=state.races.filter(r=>r.hotel_status&&r.hotel_status!=='brak'&&hotelArrivalDate(r)===key);
+    const count=races.length+hotels.length;
+    const dots=[
+      ...races.slice(0,2).map(()=>'<span class="calendar-dot race"></span>'),
+      ...hotels.slice(0,2).map(()=>'<span class="calendar-dot hotel"></span>')
     ].join('');
-    days.push(`<div class="month-cell ${d.getMonth()!==m?'out':''}"><div class="day-number">${d.getDate()}</div><div class="day-events">${pills || '<span class="day-empty">—</span>'}</div></div>`);
+    const labels=window.innerWidth>900 ? [
+      ...races.slice(0,2).map(r=>`<span class="month-event race">🏁 ${esc(shortRaceName(r.name))}</span>`),
+      ...hotels.slice(0,1).map(r=>`<span class="month-event hotel">🏨 Hotel</span>`)
+    ].join('') : '';
+    days.push(`<button class="month-cell ${d.getMonth()!==m?'out':''} ${key===todayKey?'today':''} ${key===state.calSelectedDate?'selected':''}" data-calendar-day="${key}" type="button"><span class="day-number">${d.getDate()}</span><span class="calendar-dots">${dots}</span>${labels}<span class="event-count">${count>3?'+'+(count-3):''}</span></button>`);
   }
-  return `<section class="card calendar-card"><div class="calendar-toolbar"><button class="btn btn-sm" id="calPrev">←</button><h2>${esc(monthLabel)}</h2><button class="btn btn-sm" id="calNext">→</button></div><div class="month-grid">${['Pon','Wt','Śr','Czw','Pt','Sob','Nd'].map(x=>`<div class="month-head">${x}</div>`).join('')}${days.join('')}</div></section>`;
+
+  const selected=state.calSelectedDate;
+  const selectedRaces=state.races.filter(r=>r.race_date===selected);
+  const selectedHotels=state.races.filter(r=>r.hotel_status&&r.hotel_status!=='brak'&&hotelArrivalDate(r)===selected);
+  const selectedDate=dateObj(selected);
+  const panelItems=[
+    ...selectedHotels.map(r=>`<button class="calendar-detail-item hotel" data-open-race="${r.id}" data-tab="hotel"><span class="calendar-detail-icon">🏨</span><span class="calendar-detail-copy"><small>Hotel • ${esc(hotelArrivalLabel(r))}</small><strong>${esc(r.name)}</strong><span>${esc(r.hotel_name||r.hotel_address||'Szczegóły noclegu')}</span></span><span class="calendar-chevron">›</span></button>`),
+    ...selectedRaces.map(r=>`<button class="calendar-detail-item race" data-open-race="${r.id}"><span class="calendar-detail-icon">🏁</span><span class="calendar-detail-copy"><small>Wyścig${r.start_time?' • '+esc(String(r.start_time).slice(0,5)):''}</small><strong>${esc(r.name)}</strong><span>${esc(r.city||r.race_address||'Brak lokalizacji')}</span></span><span class="calendar-chevron">›</span></button>`)
+  ].join('');
+
+  return `<section class="card calendar-card"><div class="calendar-toolbar"><button class="btn btn-sm" id="calPrev">←</button><div class="calendar-title"><h2>${esc(MONTH.format(state.calDate))}</h2><span>Widok miesiąca</span></div><button class="btn btn-sm" id="calNext">→</button></div><div class="month-grid"><div class="month-head">Pn</div><div class="month-head">Wt</div><div class="month-head">Śr</div><div class="month-head">Cz</div><div class="month-head">Pt</div><div class="month-head">So</div><div class="month-head">Nd</div>${days.join('')}</div><div class="calendar-day-panel"><div class="calendar-day-panel-head"><div><small>Wybrany dzień</small><h3>${selectedDate?selectedDate.toLocaleDateString('pl-PL',{weekday:'long',day:'numeric',month:'long'}):''}</h3></div><span class="badge">${selectedRaces.length+selectedHotels.length} wydarzeń</span></div><div class="calendar-detail-list">${panelItems||'<div class="empty compact">Brak wyścigu ani hotelu tego dnia.</div>'}</div></div></section>`;
 }
 
 function teamTasksView(){
@@ -656,8 +656,9 @@ function bindGlobal(){
   document.querySelector('#taskMemberFilter')?.addEventListener('change',e=>{state.taskMemberFilter=e.target.value;render()});
   const rs=document.querySelector('#raceSearch'); if(rs)rs.addEventListener('input',e=>{const pos=e.target.selectionStart;state.search=e.target.value;render();const n=document.querySelector('#raceSearch');if(n){n.focus();n.setSelectionRange(pos,pos);}});
   const rf=document.querySelector('#raceFilter'); if(rf)rf.addEventListener('change',e=>{state.raceFilter=e.target.value;render()});
-  document.querySelector('#calPrev')?.addEventListener('click',()=>{state.calDate=new Date(state.calDate.getFullYear(),state.calDate.getMonth()-1,1);render()});
-  document.querySelector('#calNext')?.addEventListener('click',()=>{state.calDate=new Date(state.calDate.getFullYear(),state.calDate.getMonth()+1,1);render()});
+  document.querySelector('#calPrev')?.addEventListener('click',()=>{state.calDate=new Date(state.calDate.getFullYear(),state.calDate.getMonth()-1,1);state.calSelectedDate=null;render()});
+  document.querySelector('#calNext')?.addEventListener('click',()=>{state.calDate=new Date(state.calDate.getFullYear(),state.calDate.getMonth()+1,1);state.calSelectedDate=null;render()});
+  document.querySelectorAll('[data-calendar-day]').forEach(b=>b.addEventListener('click',()=>{state.calSelectedDate=b.dataset.calendarDay;render()}));
   document.querySelector('#copyInvite')?.addEventListener('click',async()=>{await navigator.clipboard.writeText(state.team.invite_code);toast('Kod skopiowany')});
   document.querySelector('#logoutBtn')?.addEventListener('click',async()=>{if(state.demo){toast('W trybie demo wylogowanie jest wyłączone');return;}try{if(state.pushSubscribed)await disablePush();}catch(e){console.warn('Push logout',e);}finally{await supabase.auth.signOut();}});
   document.querySelector('#exportCsv')?.addEventListener('click',exportCsv);
